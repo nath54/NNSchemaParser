@@ -3,7 +3,7 @@ TODO
 """
 
 # Import Modules
-from src.core.tensor_schema import TensorRepr
+from src.core.tensor_schema import TensorRepr, TensorReprWithValue
 from src.core.instructions import Instruction
 
 
@@ -16,6 +16,7 @@ class ModelBlockSchema:
         self,
         inputs: dict[str, TensorRepr],
         outputs: list[TensorRepr],
+        weights: dict[str, TensorReprWithValue],
         sub_blocks: dict[str, "ModelBlockSchema"],
         body: list[Instruction]
     ) -> None:
@@ -27,6 +28,7 @@ class ModelBlockSchema:
                                             (often one X value)
             outputs (list[TensorRepr]): The list of all named output values of the model
                                             (often one Y value)
+            weights: dict[str, TensorReprWithValue]: The weights of the current block.
             sub_blocks (dict[str, ModelBlockSchema]): The list of all the sub block of the model
                                             (all the other nn.Modules in the model class attribute)
             body (list[Instruction]): What is happening inside the current model block
@@ -38,6 +40,9 @@ class ModelBlockSchema:
 
         # Store here the model output(s) representation(s)
         self.outputs: list[TensorRepr] = outputs
+
+        # Store here the weights of the block
+        self.weights: dict[str, TensorReprWithValue] = weights
 
         # Store here the model sub blocks
         self.sub_blocks: dict[str, ModelBlockSchema] = sub_blocks

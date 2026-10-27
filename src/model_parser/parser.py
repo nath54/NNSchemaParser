@@ -10,7 +10,7 @@ import inspect
 from torch import nn, Tensor
 
 from src.core.model_schema import ModelBlockSchema
-from src.core.tensor_schema import TensorRepr
+from src.core.tensor_schema import TensorRepr, TensorReprWithValue
 from src.core.instructions import Instruction
 
 
@@ -38,10 +38,20 @@ class NNParser:
         # Initialize the model outputs
         model_outputs: list[TensorRepr] = []
 
+        # Initialize the model weights
+        model_weights = {
+            attr_name: TensorReprWithValue(
+                shape=getattr(model, attr_name).shape,
+                dtype=str(getattr(model, attr_name).dtype),
+                value=getattr(model, attr_name).data
+            )
+            for attr_name in dir(model) if isinstance(getattr(model, attr_name), nn.Parameter)
+        }
+
         # Initialize the model sub_blocks
         model_sub_blocks: dict[str, ModelBlockSchema] = {
             attr_name: NNParser.parse_model(model=getattr(model, attr_name), inputs_tensors_shapes={})  # TODO: parse the body before to get the tensor shapes
-            for attr_name in dir(model) if getattr(model, attr_name) is nn.Module
+            for attr_name in dir(model) if isinstance(getattr(model, attr_name), nn.Module)
         }
 
         # Initialize the model body
@@ -101,6 +111,7 @@ class NNParser:
         return ModelBlockSchema(
             inputs=model_inputs,
             outputs=model_outputs,
+            weights=model_weights,
             sub_blocks=model_sub_blocks,
             body=model_body
         )
