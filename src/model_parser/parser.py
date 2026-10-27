@@ -3,7 +3,7 @@ TODO
 """
 
 # Import Modules
-from typing import Callable, Type, get_args
+from typing import Optional, Callable, Type, get_args
 
 import inspect
 
@@ -20,12 +20,13 @@ class NNParser:
     """
 
     @staticmethod
-    def parse_model(model: nn.Module) -> ModelBlockSchema:
+    def parse_model(model: nn.Module, inputs_tensors_shapes: dict[str, tuple[int, ...]]) -> ModelBlockSchema:
         """
         TODO
 
         Args:
             model (nn.Module): The model to parse
+            inputs_tensors_shapes (dict[str, tuple[int, ...]]): The input tensors shapes
 
         Returns:
             ModelSchema: The parsed model schema
@@ -39,7 +40,7 @@ class NNParser:
 
         # Initialize the model sub_blocks
         model_sub_blocks: dict[str, ModelBlockSchema] = {
-            attr_name: NNParser.parse_model(model=getattr(model, attr_name))
+            attr_name: NNParser.parse_model(model=getattr(model, attr_name), inputs_tensors_shapes={})  # TODO: parse the body before to get the tensor shapes
             for attr_name in dir(model) if getattr(model, attr_name) is nn.Module
         }
 
@@ -89,7 +90,6 @@ class NNParser:
                             dtype = ""   # TODO
                         )
                     )
-
 
         # If no type compatible, raise error
         else:

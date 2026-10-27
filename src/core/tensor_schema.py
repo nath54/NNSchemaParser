@@ -21,7 +21,7 @@ class TensorRepr:
         """
 
         # Store here the shape of the tensor
-        self.shape: tuple[int | str, ...] = shape
+        self.shape: tuple[int, ...] = shape
 
         # Store here the type of the tensor
         self.dtype: str = dtype
