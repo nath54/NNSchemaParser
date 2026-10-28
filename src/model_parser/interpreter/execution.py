@@ -149,7 +149,14 @@ class InstructionExecutor:
         )
 
         # Fill the missing arguments with the defaults of the sub-block forward
-        missing_names: list[str] = input_names[len(positional_args):]
+        # (only the declared inputs not bound positionally or by keyword, else
+        # the defaults would silently overwrite the bound keyword arguments)
+        bound_names: set[str] = set(sub_scope) | set(instruction.kwargs)
+        missing_names: list[str] = [
+            input_name
+            for input_name in input_names
+            if input_name not in bound_names
+        ]
         if missing_names:
             sub_scope.update(
                 self._sub_block_defaults(
