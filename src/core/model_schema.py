@@ -3,8 +3,10 @@ TODO
 """
 
 # Import Modules
-from src.core.tensor_schema import TensorRepr, TensorReprWithValue
+from typing import Any
+
 from src.core.instructions import Instruction
+from src.core.tensor_schema import TensorRepr, TensorReprWithValue
 
 
 class ModelBlockSchema:
@@ -18,7 +20,8 @@ class ModelBlockSchema:
         outputs: list[TensorRepr],
         weights: dict[str, TensorReprWithValue],
         sub_blocks: dict[str, "ModelBlockSchema"],
-        body: list[Instruction]
+        body: list[Instruction],
+        module: Any | None = None
     ) -> None:
         """
         Init function.
@@ -33,6 +36,8 @@ class ModelBlockSchema:
                                             (all the other nn.Modules in the model class attribute)
             body (list[Instruction]): What is happening inside the current model block
                                             (the graph that will be shown in the webUI)
+            module (Any | None): The source module of the block, used by the
+                                            interpreter to resolve dynamic attributes.
         """
 
         # Store here the model input(s) representation(s)
@@ -49,3 +54,6 @@ class ModelBlockSchema:
 
         # Store here the model body list of instructions / expressions
         self.body: list[Instruction] = body
+
+        # Store here the source module of the block
+        self.module: Any | None = module
