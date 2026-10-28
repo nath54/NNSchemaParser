@@ -226,12 +226,13 @@ def main() -> None:
         expected_outputs=2
     )
 
-    # The torchaudio wavlm model
+    # The torchaudio wavlm model, which does not support the lengths input
+    # (its attention asserts attention_mask is None)
     wavlm: Any = wavlm_base().eval()
     check_model(
         name="wavlm",
         model=wavlm,
-        inputs_tensors_shapes={"waveforms": (2, 16000), "lengths": (2,)},
+        inputs_tensors_shapes={"waveforms": (2, 16000)},
         inputs_tensors_dtypes={},
         expected_outputs=2
     )

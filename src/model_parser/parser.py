@@ -16,6 +16,7 @@ from torch import Tensor, nn
 from src.core.instructions import Instruction
 from src.core.model_schema import ModelBlockSchema
 from src.core.tensor_schema import TensorRepr, TensorReprWithValue
+from src.model_parser.children import collect_sub_blocks
 from src.model_parser.lowering import BodyLowering
 from src.model_parser.resolution import ShapeResolver
 
@@ -59,11 +60,11 @@ class NNParser:
         )
 
         # Collect the sub-blocks and the container names of the model
-        model_sub_blocks: dict[str, ModelBlockSchema] = {}
-        container_names: set[str] = set()
-        container_names = NNParser._collect_sub_blocks(
+        model_sub_blocks: dict[str, ModelBlockSchema]
+        container_names: set[str]
+        model_sub_blocks, container_names = collect_sub_blocks(
             model=model,
-            model_sub_blocks=model_sub_blocks
+            parse_model=NNParser.parse_model
         )
 
         # Collect the plain python attributes of the module as literals
@@ -125,51 +126,6 @@ class NNParser:
                 raise ValueError(
                     f"Unsupported argument kind in forward: {parameter.kind}"
                 )
-
-    @staticmethod
-    def _collect_sub_blocks(
-        model: nn.Module,
-        model_sub_blocks: dict[str, ModelBlockSchema]
-    ) -> set[str]:
-        """
-        Collect the sub-blocks and the container names of a model.
-
-        The containers (nn.ModuleList, nn.ModuleDict, nn.Sequential) are
-        expanded into indexed sub-block entries keyed by "name.index".
-
-        Args:
-            model (nn.Module): The model whose children are collected.
-            model_sub_blocks (dict[str, ModelBlockSchema]): The dictionary
-                filled with the parsed sub-blocks of the model.
-
-        Returns:
-            set[str]: The names of the sub-block containers of the model.
-        """
-
-        # Initialize the names of the containers of the model
-        container_names: set[str] = set()
-
-        # Check each direct child of the model
-        child_name: str
-        child: nn.Module
-        for child_name, child in model.named_children():
-
-            # A container is parsed entry by entry with indexed keys
-            if isinstance(child, (nn.ModuleList, nn.ModuleDict, nn.Sequential)):
-                container_names.add(child_name)
-                model_sub_blocks.update(
-                    NNParser._parse_container(name=child_name, module=child)
-                )
-
-            # A direct sub-block is parsed recursively
-            else:
-                model_sub_blocks[child_name] = NNParser.parse_model(
-                    model=child,
-                    inputs_tensors_shapes={}
-                )
-
-        # Return the names of the containers of the model
-        return container_names
 
     @staticmethod
     def _lower_forward(
@@ -301,44 +257,6 @@ class NNParser:
 
         # Return the collected weights of the model
         return model_weights
-
-    @staticmethod
-    def _parse_container(name: str, module: nn.Module) -> dict[str, ModelBlockSchema]:
-        """
-        Parse a sub-block container entry by entry.
-
-        Args:
-            name (str): The attribute name of the container in its parent.
-            module (nn.Module): The container module to parse.
-
-        Returns:
-            dict[str, ModelBlockSchema]: The parsed entries keyed by "name.key".
-        """
-
-        # Initialize the parsed entries of the container
-        parsed: dict[str, ModelBlockSchema] = {}
-
-        # A module list is parsed entry by entry with integer keys
-        entry: nn.Module
-        if isinstance(module, (nn.ModuleList, nn.Sequential)):
-            index: int
-            for index, entry in enumerate(module):
-                parsed[f"{name}.{index}"] = NNParser.parse_model(
-                    model=entry,
-                    inputs_tensors_shapes={}
-                )
-
-        # A module dict is parsed entry by entry with string keys
-        elif isinstance(module, nn.ModuleDict):
-            key: str
-            for key, entry in module.items():
-                parsed[f"{name}.{key}"] = NNParser.parse_model(
-                    model=entry,
-                    inputs_tensors_shapes={}
-                )
-
-        # Return the parsed entries of the container
-        return parsed
 
     @staticmethod
     def _collect_literals(
