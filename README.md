@@ -1,3 +1,110 @@
-# NNViewer: Neural Network Viewer and Analysis
+# NNSchemaParser
 
-TODO
+**NNSchemaParser** converts a PyTorch `nn.Module` into a serializable, inspectable
+graph representation — the **`ModelBlockSchema`** — that keeps the *original variable
+names of the forward source* and *every sub-module* (including MoE experts that a
+single trace would never visit). The schema can then be executed by a built-in
+**schema interpreter** that re-dispatches every recorded call to the real torch
+callables, so the graph runs exactly like the model — and can optionally capture
+the value of every intermediate tensor.
+
+```
+nn.Module  ──parse──►  ModelBlockSchema  ──interpret──►  outputs / captured values
+  (your code)           (names + graph)                  (identical to model(x))
+```
+
+## Why not `torch.fx`?
+
+| | `torch.fx.symbolic_trace` | **NNSchemaParser** |
+|---|---|---|
+| Variable names | lost (`_0`, `_1`, …) | **kept** (`hidden_states`, `query`, …) |
+| Untaken branches (MoE experts) | missing | **all present** |
+| Control flow | `graph_module` nodes only | `if` / `for` / `try` as first-class instructions |
+| `*args` / `**kwargs` | limited | supported in signatures and call sites |
+| Comprehensions | unsupported | compiled to helper functions |
+| Re-executable | via the FX machinery | via a small self-contained interpreter |
+
+## Quick start
+
+```python
+import torch
+from torch import nn
+
+from src.model_parser.parser import NNParser
+from src.model_parser.interpreter import SchemaInterpreter
+
+
+class MLP(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fc1 = nn.Linear(784, 256)
+        self.fc2 = nn.Linear(256, 10)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        hidden = self.fc1(x)
+        activated = hidden.relu()
+        return self.fc2(activated)
+
+
+model = MLP().eval()
+x = torch.randn(2, 784)
+
+# 1. Parse the model into a schema (resolves shapes and dtypes)
+schema = NNParser.parse_model(
+    model=model,
+    inputs_tensors_shapes={"x": (2, 784)},
+    inputs_tensors_dtypes={"x": "torch.float32"},
+    inputs_tensors_values={"x": x},
+)
+
+# 2. Inspect the graph
+for instruction in schema.body:
+    print(instruction.out_var, type(instruction).__name__,
+          instruction.resolved)
+
+# 3. Execute it and compare with the real forward
+outputs = SchemaInterpreter(capture_values=True).run(
+    block=schema,
+    scope={"x": x.clone()},
+)
+reference = model(x)
+assert torch.equal(outputs[0], reference)
+```
+
+The schema body of `MLP` reads exactly like the source:
+
+```
+=== BLOCK MLP ===
+inputs: x torch.float32[2, 784]
+weights: fc1.weight torch.float32[256, 784], fc1.bias torch.float32[256], ...
+sub-blocks: fc1(Linear), fc2(Linear)
+body:
+  hidden = CALL fc1(x)                -> torch.float32[2, 256]
+  activated = F.relu(hidden)          -> torch.float32[2, 256]
+  $t1 = CALL fc2(activated)           -> torch.float32[2, 10]
+  RETURN $t1
+```
+
+## Requirements
+
+- Python ≥ 3.12, PyTorch ≥ 2.0 (`pip install -r requirements.txt`)
+- The model classes must be importable from a **real file** (the parser reads the
+  forward source with `inspect.getsource`, which fails for classes defined in a
+  REPL or stdin).
+
+## Validation
+
+A robustness sweep of **58 models** — 48 Hugging Face hub checkpoints (text,
+vision, audio, multimodal) plus 10 locally built architectures (MLP, RNN, CNN,
+autoencoder, GAN, GNN) — runs each model through *parse → interpret → compare
+against the real forward*. **All 58 pass with `maxdiff = 0.0`** against the real
+forward. See [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md) for the full model
+matrix and the sweep CLI.
+
+## Documentation
+
+- **[docs/DOCUMENTATION.md](docs/DOCUMENTATION.md)** — full documentation:
+  how the parser works, the schema and instruction reference, the interpreter,
+  usage recipes, supported syntax, supported/unsupported models, and limitations.
+- `tests/hf_sweep.py` — the validation harness CLI.
+- `tests/test_parser.py`, `tests/test_speech_models.py` — regression tests.
