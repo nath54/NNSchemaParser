@@ -11,14 +11,13 @@ from typing import Any, Callable
 import ast
 import operator
 
-from src.core.instructions import Instruction, VarRef
+from src.core.instructions import ControlInstruction, Instruction, OpInstruction, VarRef
 from src.model_parser.lowering.base import LoweringContext
 from src.model_parser.lowering.errors import UnsupportedSyntaxError
 from src.model_parser.lowering.runtime_ops import (
     BINARY_OPERATORS,
     COMPARISON_OPERATORS,
-    bool_and,
-    bool_or
+    bool_and
 )
 
 
@@ -116,9 +115,10 @@ class OperatorLowering(LoweringContext):
             VarRef | Any: A variable reference to the result, or a literal.
         """
 
-        # Chained comparisons are not supported
-        if len(expr.ops) != 1:
-            raise UnsupportedSyntaxError("Chained comparisons are not supported", expr)
+        # A chained comparison is lowered to the conjunction of the
+        # pairwise comparisons, with each operand evaluated only once
+        if len(expr.ops) > 1:
+            return self._lower_chained_compare(expr=expr, body=body)
 
         # Lower the two sides of the comparison
         left: VarRef | Any = self._lower_expr(expr=expr.left, body=body)
@@ -156,9 +156,79 @@ class OperatorLowering(LoweringContext):
         # Return the reference to the result of the comparison
         return VarRef(name=out_var)
 
+    def _lower_chained_compare(self, expr: ast.Compare, body: list[Instruction]) -> VarRef | Any:
+        """
+        Lower a chained comparison to the conjunction of its pairs.
+
+        Args:
+            expr (ast.Compare): The comparison expression to lower.
+            body (list[Instruction]): The body to append the instructions to.
+
+        Returns:
+            VarRef | Any: A variable reference to the result of the chain.
+        """
+
+        # Lower every operand of the chain exactly once
+        operands: list[VarRef | Any] = [self._lower_expr(expr=expr.left, body=body)]
+        comparator: ast.expr
+        for comparator in expr.comparators:
+            operands.append(self._lower_expr(expr=comparator, body=body))
+
+        # Emit the pairwise comparisons
+        pair_vars: list[str] = []
+        pair_index: int
+        op: ast.cmpop
+        for pair_index, op in enumerate(expr.ops):
+            left: VarRef | Any = operands[pair_index]
+            right: VarRef | Any = operands[pair_index + 1]
+
+            # The membership test has reversed arguments
+            if type(op) is ast.In:
+                fn: Callable[[Any, Any], Any] = operator.contains
+                name: str = "contains"
+                args: list[VarRef | Any] = [right, left]
+            else:
+                fn = COMPARISON_OPERATORS[type(op)]
+                name = fn.__name__
+                args = [left, right]
+
+            # The comparison operation of the pair
+            out_var: str = self._new_temp()
+            self._emit_op(
+                target=fn,
+                qualified_name=name,
+                args=args,
+                kwargs={},
+                out_var=out_var,
+                body=body
+            )
+            pair_vars.append(out_var)
+
+        # Chain the pairwise results with the boolean and
+        current: VarRef = VarRef(name=pair_vars[0])
+        pair_var: str
+        for pair_var in pair_vars[1:]:
+            out_var = self._new_temp()
+            self._emit_op(
+                target=bool_and,
+                qualified_name="and",
+                args=[current, VarRef(name=pair_var)],
+                kwargs={},
+                out_var=out_var,
+                body=body
+            )
+            current = VarRef(name=out_var)
+
+        # Return the reference to the result of the chain
+        return current
+
     def _lower_bool_op(self, expr: ast.BoolOp, body: list[Instruction]) -> VarRef | Any:
         """
-        Lower a boolean operation to chained logical operations.
+        Lower a boolean operation to a short-circuit nested condition chain.
+
+        The python and/or operators evaluate the operands lazily, so the
+        chain is lowered as nested if instructions binding the result,
+        instead of an eager evaluation of every operand.
 
         Args:
             expr (ast.BoolOp): The boolean operation expression.
@@ -168,34 +238,89 @@ class OperatorLowering(LoweringContext):
             VarRef | Any: A variable reference to the result of the operation.
         """
 
-        # Map the boolean operator to its function and name
-        fn: Callable[[Any, Any], Any]
-        name: str
-        if isinstance(expr.op, ast.And):
-            fn, name = bool_and, "and"
-        else:
-            fn, name = bool_or, "or"
+        # The output variable of the whole chain
+        out_var: str = self._new_temp()
+        body.extend(
+            self._bool_chain(
+                values=expr.values,
+                index=0,
+                out_var=out_var,
+                is_and=isinstance(expr.op, ast.And)
+            )
+        )
 
-        # Lower all the values of the boolean operation
-        values: list[VarRef | Any] = []
-        value_expr: ast.expr
-        for value_expr in expr.values:
-            values.append(self._lower_expr(expr=value_expr, body=body))
+        # Return the reference to the result of the operation
+        return VarRef(name=out_var)
 
-        # Chain the values two by two with the boolean function
-        current: VarRef | Any = values[0]
-        value: VarRef | Any
-        for value in values[1:]:
-            out_var: str = self._new_temp()
-            self._emit_op(
-                target=fn,
-                qualified_name=name,
-                args=[current, value],
-                kwargs={},
+    def _bool_chain(
+        self,
+        values: list[ast.expr],
+        index: int,
+        out_var: str,
+        is_and: bool
+    ) -> list[Instruction]:
+        """
+        Build the nested instructions of a short-circuit boolean chain.
+
+        Args:
+            values (list[ast.expr]): The operand expressions of the chain.
+            index (int): The index of the current operand in the chain.
+            out_var (str): The name of the variable bound to the result.
+            is_and (bool): Whether the chain is a conjunction.
+
+        Returns:
+            list[Instruction]: The instructions of the current chain level.
+        """
+
+        # The body of the current chain level
+        body: list[Instruction] = []
+
+        # The current operand is evaluated then used as the condition
+        condition: OpInstruction = self._lower_condition(
+            test=values[index], body=body
+        )
+        current_var: str = condition.out_var
+
+        # The last operand is the result of the chain
+        if index == len(values) - 1:
+            self._bind_result(
+                result=VarRef(name=current_var),
                 out_var=out_var,
                 body=body
             )
-            current = VarRef(name=out_var)
+            return body
 
-        # Return the reference to the result of the operation
-        return current
+        # The continuation evaluates the next operands of the chain
+        inner_body: list[Instruction] = self._bool_chain(
+            values=values,
+            index=index + 1,
+            out_var=out_var,
+            is_and=is_and
+        )
+
+        # The short-circuit branch binds the current operand as the result
+        short_body: list[Instruction] = []
+        self._bind_result(
+            result=VarRef(name=current_var),
+            out_var=out_var,
+            body=short_body
+        )
+
+        # A falsy operand short-circuits an and, a truthy an or
+        if is_and:
+            body.append(ControlInstruction(
+                kind="if",
+                condition=condition,
+                body=inner_body,
+                else_body=short_body,
+                bind_var=None
+            ))
+        else:
+            body.append(ControlInstruction(
+                kind="if",
+                condition=condition,
+                body=short_body,
+                else_body=inner_body,
+                bind_var=None
+            ))
+        return body

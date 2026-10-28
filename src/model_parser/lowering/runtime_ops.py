@@ -21,7 +21,12 @@ BINARY_OPERATORS: dict[type, Callable[[Any, Any], Any]] = {
     ast.FloorDiv: operator.floordiv,
     ast.Mod: operator.mod,
     ast.Pow: operator.pow,
-    ast.MatMult: operator.matmul
+    ast.MatMult: operator.matmul,
+    ast.BitAnd: operator.and_,
+    ast.BitOr: operator.or_,
+    ast.BitXor: operator.xor,
+    ast.LShift: operator.lshift,
+    ast.RShift: operator.rshift
 }
 
 

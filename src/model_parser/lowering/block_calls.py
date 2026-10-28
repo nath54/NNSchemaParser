@@ -14,6 +14,7 @@ from src.core.instructions import BlockInstruction, BlockRef, Instruction, VarRe
 from src.model_parser.lowering.base import LoweringContext
 from src.model_parser.container_keys import container_entry_keys
 from src.model_parser.lowering.errors import UnsupportedSyntaxError
+from src.model_parser.lowering.runtime_ops import identity
 
 
 class BlockCallLowering(LoweringContext):
@@ -50,7 +51,7 @@ class BlockCallLowering(LoweringContext):
         # Lower the arguments of the call for the first entry of the chain
         lowered_args: list[VarRef | Any]
         lowered_kwargs: dict[str, VarRef | Any]
-        lowered_args, lowered_kwargs = self._lower_call_args(
+        lowered_args, lowered_kwargs, _, _ = self._lower_call_args(
             call=call,
             body=body
         )
@@ -150,7 +151,8 @@ class BlockCallLowering(LoweringContext):
         block_ref: BlockRef,
         call: ast.Call,
         body: list[Instruction],
-        out_var: str
+        out_var: str,
+        kwargs_var: str | None = None
     ) -> str:
         """
         Lower a call to a sub-block into a block instruction.
@@ -168,14 +170,18 @@ class BlockCallLowering(LoweringContext):
         # Lower all the positional and the keyword arguments of the call
         args: list[VarRef | Any]
         kwargs: dict[str, VarRef | Any]
-        args, kwargs = self._lower_call_args(call=call, body=body)
+        args, kwargs, kwargs_var, args_var = self._lower_call_args(
+            call=call, body=body
+        )
 
         # Append the block instruction of the call
         body.append(BlockInstruction(
             block_ref=block_ref,
             args=args,
             out_var=out_var,
-            kwargs=kwargs
+            kwargs=kwargs,
+            kwargs_var=kwargs_var,
+            args_var=args_var
         ))
 
         # Return the output variable name of the call
@@ -216,7 +222,7 @@ class BlockCallLowering(LoweringContext):
         self,
         call: ast.Call,
         body: list[Instruction]
-    ) -> tuple[list[VarRef | Any], dict[str, VarRef | Any]]:
+    ) -> tuple[list[VarRef | Any], dict[str, VarRef | Any], str | None, str | None]:
         """
         Lower the positional and the keyword arguments of a call.
 
@@ -225,21 +231,50 @@ class BlockCallLowering(LoweringContext):
             body (list[Instruction]): The body to append the instructions to.
 
         Returns:
-            tuple[list[VarRef | Any], dict[str, VarRef | Any]]: The lowered
-                positional arguments and the lowered keyword arguments.
+            tuple[list[VarRef | Any], dict[str, VarRef | Any], str | None,
+                str | None]: The lowered positional arguments, the lowered
+                keyword arguments, the name of the unpacked keyword dict and
+                the name of the unpacked positional tuple, if any.
         """
 
-        # Lower all the positional arguments of the call
+        # Lower all the positional arguments of the call, keeping the
+        # starred unpacking variables apart
         args: list[VarRef | Any] = []
+        args_var: str | None = None
         arg: ast.expr
         for arg in call.args:
+            if isinstance(arg, ast.Starred):
+                if not isinstance(arg.value, ast.Name):
+                    raise UnsupportedSyntaxError(
+                        "Unsupported *args unpacking expression", arg
+                    )
+                if args_var is not None:
+                    raise UnsupportedSyntaxError(
+                        "Several starred arguments are not supported", arg
+                    )
+                args_var = arg.value.id
+                continue
+            if args_var is not None:
+                raise UnsupportedSyntaxError(
+                    "A positional argument follows a starred argument", arg
+                )
             args.append(self._lower_expr(expr=arg, body=body))
 
         # Lower all the keyword arguments of the call
         kwargs: dict[str, VarRef | Any] = {}
+        kwargs_var: str | None = None
         kw: ast.keyword
         for kw in call.keywords:
+
+            # The keyword argument unpacking must be a plain variable name
+            if kw.arg is None:
+                if not isinstance(kw.value, ast.Name):
+                    raise UnsupportedSyntaxError(
+                        "Unsupported **kwargs unpacking expression", kw
+                    )
+                kwargs_var = kw.value.id
+                continue
             kwargs[kw.arg] = self._lower_expr(expr=kw.value, body=body)
 
         # Return the lowered arguments of the call
-        return args, kwargs
+        return args, kwargs, kwargs_var, args_var

@@ -14,6 +14,7 @@ import textwrap
 
 from torch import nn
 
+from src.model_parser.forward import resolve_forward
 from src.core.instructions import Instruction, OpInstruction, ReturnInstruction, VarRef
 from src.model_parser.lowering.errors import UnsupportedSyntaxError
 from src.model_parser.lowering.runtime_ops import identity
@@ -32,7 +33,8 @@ class LoweringContext:
         sub_block_names: set[str],
         container_names: set[str],
         weight_names: set[str],
-        literals: dict[str, Any]
+        literals: dict[str, Any],
+        dict_container_names: set[str] | None = None
     ) -> None:
         """
         Init function.
@@ -48,6 +50,7 @@ class LoweringContext:
         # Store here the symbol tables of the module
         self.sub_block_names: set[str] = sub_block_names
         self.container_names: set[str] = container_names
+        self.dict_container_names: set[str] = dict_container_names or set()
         self.weight_names: set[str] = weight_names
         self.literals: dict[str, Any] = literals
 
@@ -59,6 +62,9 @@ class LoweringContext:
 
         # The parameter names of the lowered forward method
         self._param_names: set[str] = set()
+
+        # The name of the var-keyword parameter of the forward, if any
+        self._kwarg_name: str | None = None
 
         # The local variable names of the lowered forward method
         self._local_names: set[str] = set()
@@ -83,7 +89,7 @@ class LoweringContext:
         tree: ast.Module = ast.parse(source)
 
         # Keep the globals of the forward method for the name resolutions
-        self.forward_globals = dict(model.forward.__globals__)
+        self.forward_globals = dict(resolve_forward(module=model).__globals__)
 
         # Search for the forward function definition in the parsed tree
         forward_def: ast.FunctionDef | None = None
@@ -99,6 +105,11 @@ class LoweringContext:
 
         # Keep the parameter names of the forward method for the name roots
         self._param_names = {arg.arg for arg in forward_def.args.args}
+
+        # Keep the name of the var-keyword parameter of the forward, if any
+        self._kwarg_name = (
+            forward_def.args.kwarg.arg if forward_def.args.kwarg else None
+        )
 
         # Keep the local variable names of the forward for the name roots
         self._collect_local_names(forward_def=forward_def)
@@ -151,7 +162,9 @@ class LoweringContext:
         args: list[VarRef | Any],
         kwargs: dict[str, VarRef | Any],
         out_var: str,
-        body: list[Instruction]
+        body: list[Instruction],
+        kwargs_var: str | None = None,
+        args_var: str | None = None
     ) -> OpInstruction:
         """
         Create an operation instruction and append it to the body.
@@ -164,6 +177,10 @@ class LoweringContext:
             kwargs (dict[str, VarRef | Any]): The keyword arguments of the call.
             out_var (str): The name of the variable the result is bound to.
             body (list[Instruction]): The body to append the instruction to.
+            kwargs_var (str | None): The name of a scope variable holding a
+                dict unpacked as extra keyword arguments, if any.
+            args_var (str | None): The name of a scope variable holding a
+                tuple unpacked as extra positional arguments, if any.
 
         Returns:
             OpInstruction: The created and appended operation instruction.
@@ -175,7 +192,9 @@ class LoweringContext:
             qualified_name=qualified_name,
             args=args,
             kwargs=kwargs,
-            out_var=out_var
+            out_var=out_var,
+            kwargs_var=kwargs_var,
+            args_var=args_var
         )
         body.append(instruction)
 

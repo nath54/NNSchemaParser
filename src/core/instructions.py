@@ -120,7 +120,9 @@ class OpInstruction(Instruction):
         qualified_name: str,
         args: list[VarRef | Any],
         kwargs: dict[str, VarRef | Any],
-        out_var: str
+        out_var: str,
+        kwargs_var: str | None = None,
+        args_var: str | None = None
     ) -> None:
         """
         Init function.
@@ -136,6 +138,10 @@ class OpInstruction(Instruction):
             kwargs (dict[str, VarRef | Any]): The keyword arguments, variable
                 references or literals.
             out_var (str): The name of the variable the result is bound to.
+        kwargs_var (str | None): The name of a scope variable holding a dict
+            unpacked as extra keyword arguments (the **kwargs of the call).
+        args_var (str | None): The name of a scope variable holding a tuple
+            unpacked as extra positional arguments (the *args of the call).
         """
 
         # Init parent
@@ -153,6 +159,12 @@ class OpInstruction(Instruction):
         # Store here the keyword arguments of the call
         self.kwargs: dict[str, VarRef | Any] = kwargs
 
+        # Store here the name of the unpacked keyword arguments variable
+        self.kwargs_var: str | None = kwargs_var
+
+        # Store here the name of the unpacked positional arguments variable
+        self.args_var: str | None = args_var
+
 
 class BlockInstruction(Instruction):
     """
@@ -165,7 +177,9 @@ class BlockInstruction(Instruction):
         args: list[VarRef | Any],
         out_var: str,
         kwargs: dict[str, VarRef | Any] | None = None,
-        splat_args: bool = False
+        splat_args: bool = False,
+        kwargs_var: str | None = None,
+        args_var: str | None = None
     ) -> None:
         """
         Init function.
@@ -180,6 +194,11 @@ class BlockInstruction(Instruction):
                 the call, bound to the sub-block inputs by name.
             splat_args (bool): Whether the argument variable holds a tuple to
                 unpack as the positional arguments of the call.
+            kwargs_var (str | None): The name of a scope variable holding a dict
+                unpacked as extra keyword arguments (the **kwargs of the call).
+            args_var (str | None): The name of a scope variable holding a
+                tuple unpacked as extra positional arguments (the *args of
+                the call).
         """
 
         # Init parent
@@ -196,6 +215,12 @@ class BlockInstruction(Instruction):
 
         # Store here whether the argument variable is unpacked as the arguments
         self.splat_args: bool = splat_args
+
+        # Store here the name of the unpacked keyword arguments variable
+        self.kwargs_var: str | None = kwargs_var
+
+        # Store here the name of the unpacked positional arguments variable
+        self.args_var: str | None = args_var
 
 
 class ControlInstruction(Instruction):
