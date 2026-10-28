@@ -30,8 +30,7 @@ nn.Module  ──parse──►  ModelBlockSchema  ──interpret──►  out
 import torch
 from torch import nn
 
-from src.model_parser.parser import NNParser
-from src.model_parser.interpreter import SchemaInterpreter
+from nnschemaparser import NNParser, SchemaInterpreter
 
 
 class MLP(nn.Module):
@@ -85,12 +84,15 @@ body:
   RETURN $t1
 ```
 
-## Requirements
+## Installation
 
-- Python ≥ 3.12, PyTorch ≥ 2.0 (`pip install -r requirements.txt`)
-- The model classes must be importable from a **real file** (the parser reads the
-  forward source with `inspect.getsource`, which fails for classes defined in a
-  REPL or stdin).
+```bash
+pip install .            # or: pip install -e .[test] for the harness extras
+```
+
+Requires Python ≥ 3.12 and PyTorch ≥ 2.0. The model classes must be importable
+from a **real file** (the parser reads the forward source with
+`inspect.getsource`, which fails for classes defined in a REPL or stdin).
 
 ## Validation
 
@@ -108,3 +110,7 @@ matrix and the sweep CLI.
   usage recipes, supported syntax, supported/unsupported models, and limitations.
 - `tests/hf_sweep.py` — the validation harness CLI.
 - `tests/test_parser.py`, `tests/test_speech_models.py` — regression tests.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

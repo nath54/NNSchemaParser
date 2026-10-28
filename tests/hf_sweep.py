@@ -1,5 +1,5 @@
 """
-Robustness sweep of the NNViewer parser over many pretrained architectures.
+Robustness sweep of the NNSchemaParser parser over many pretrained architectures.
 
 Each model of the registry is loaded from the Hugging Face hub (or built
 locally), parsed into a ModelBlockSchema, executed by the schema interpreter
@@ -33,10 +33,10 @@ sys.path.insert(0, str(_ROOT))  # noqa: E402
 import torch  # noqa: E402
 from torch import Tensor, nn  # noqa: E402
 
-from src.core.model_schema import ModelBlockSchema  # noqa: E402
-from src.model_parser.children import SKIPPED_CHILDREN, collect_sub_blocks  # noqa: E402
-from src.model_parser.interpreter import SchemaInterpreter  # noqa: E402
-from src.model_parser.parser import NNParser  # noqa: E402
+from nnschemaparser.core.model_schema import ModelBlockSchema  # noqa: E402
+from nnschemaparser.parser.children import SKIPPED_CHILDREN, collect_sub_blocks  # noqa: E402
+from nnschemaparser.interpreter import SchemaInterpreter  # noqa: E402
+from nnschemaparser.parser.parser import NNParser  # noqa: E402
 from tests.hf_dump import TraceRecorder, describe_value, dump_schema, install_tracer, uninstall_tracer  # noqa: E402
 from tests.hf_registry import MODEL_SPECS, ModelSpec  # noqa: E402
 

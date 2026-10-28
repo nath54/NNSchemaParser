@@ -13,7 +13,7 @@ from typing import Any
 import torch
 from torch import Tensor
 
-from src.core.instructions import (
+from nnschemaparser.core.instructions import (
     BlockInstruction,
     ControlInstruction,
     Instruction,
@@ -22,9 +22,9 @@ from src.core.instructions import (
     TryInstruction,
     VarRef
 )
-from src.core.model_schema import ModelBlockSchema
-from src.core.tensor_schema import TensorRepr, TensorReprWithValue
-from src.model_parser.interpreter import SchemaInterpreter
+from nnschemaparser.core.model_schema import ModelBlockSchema
+from nnschemaparser.core.tensor_schema import TensorRepr, TensorReprWithValue
+from nnschemaparser.interpreter import SchemaInterpreter
 
 # The maximum number of lines written to a dump file
 MAX_LINES: int = 20000

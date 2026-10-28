@@ -18,9 +18,9 @@ from espnet2.asr.encoder.conformer_encoder import ConformerEncoder
 from espnet2.asr.encoder.transformer_encoder import TransformerEncoder
 from espnet2.asr.encoder.branchformer_encoder import BranchformerEncoder
 
-from src.core.model_schema import ModelBlockSchema
-from src.model_parser.parser import NNParser
-from src.model_parser.interpreter import SchemaInterpreter
+from nnschemaparser.core.model_schema import ModelBlockSchema
+from nnschemaparser.parser.parser import NNParser
+from nnschemaparser.interpreter import SchemaInterpreter
 
 
 def check_block_instructions(block: ModelBlockSchema, path: str) -> None:

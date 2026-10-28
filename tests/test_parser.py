@@ -10,10 +10,10 @@ from typing import Any
 import torch
 from torch import Tensor, nn
 
-from src.core.instructions import BlockInstruction, ControlInstruction, OpInstruction
-from src.core.model_schema import ModelBlockSchema
-from src.model_parser.parser import NNParser
-from src.model_parser.interpreter import SchemaInterpreter
+from nnschemaparser.core.instructions import BlockInstruction, ControlInstruction, OpInstruction
+from nnschemaparser.core.model_schema import ModelBlockSchema
+from nnschemaparser.parser.parser import NNParser
+from nnschemaparser.interpreter import SchemaInterpreter
 
 
 class Expert(nn.Module):

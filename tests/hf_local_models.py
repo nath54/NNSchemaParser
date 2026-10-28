@@ -13,7 +13,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from src.core.model_schema import ModelBlockSchema  # noqa: F401 (type exports)
+from nnschemaparser.core.model_schema import ModelBlockSchema  # noqa: F401 (type exports)
 
 
 def _train_one_step(model: nn.Module, inputs: dict[str, Tensor]) -> None:

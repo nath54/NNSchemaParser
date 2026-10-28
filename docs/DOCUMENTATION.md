@@ -26,12 +26,12 @@ produces, and which models are supported.
 
 NNSchemaParser has two deliverables and nothing else:
 
-1. **The parser** (`src/model_parser/`) — converts any `torch.nn.Module` into a
+1. **The parser** (`nnschemaparser/parser/`) — converts any `torch.nn.Module` into a
    `ModelBlockSchema` tree.
-2. **The schema** (`src/core/`) — the data model: `ModelBlockSchema`,
+2. **The schema** (`nnschemaparser/core/`) — the data model: `ModelBlockSchema`,
    `TensorRepr`, `TensorReprWithValue` and the instruction types.
 
-The **schema interpreter** (`src/model_parser/interpreter/`) executes a schema in
+The **schema interpreter** (`nnschemaparser/interpreter/`) executes a schema in
 two modes:
 
 - **parse time** — under `torch._subclasses.fake_tensor.FakeTensorMode` (or with
@@ -184,7 +184,7 @@ values are returned as a tuple.
 ## 4. The schema interpreter
 
 ```python
-from src.model_parser.interpreter import SchemaInterpreter
+from nnschemaparser import SchemaInterpreter
 
 interpreter = SchemaInterpreter(capture_values=True)
 outputs = interpreter.run(block=schema, scope={"x": x.clone()})
@@ -460,28 +460,31 @@ model so the full sweep fits on a small disk.
 ## 10. Project layout
 
 ```
-src/
-  core/                       The schema data model
-    model_schema.py           ModelBlockSchema
-    tensor_schema.py          TensorRepr, TensorReprWithValue
-    instructions.py           VarRef, BlockRef, Op/Block/Control/Try/Return instructions
+nnschemaparser/              The package (pip installable)
+  __init__.py                Public API: NNParser, SchemaInterpreter, schema types
+  forward.py                 forward unwrapping (transformers v5 decorators)
 
-  model_parser/               The parser
-    parser.py                 NNParser.parse_model — the public entry point
-    children.py               child/container/weight collection
-    container_keys.py         container key helpers (dotted paths, dict keys)
-    forward.py                forward unwrapping (transformers v5 decorators)
-    resolution.py             ShapeResolver — fake mode + real fallback
-    lowering/                 forward source AST -> instructions
+  core/                      The schema data model
+    model_schema.py          ModelBlockSchema
+    tensor_schema.py         TensorRepr, TensorReprWithValue
+    instructions.py          VarRef, BlockRef, Op/Block/Control/Try/Return instructions
+    container_keys.py        container key helpers (dotted paths, dict keys)
+
+  parser/                    The parser
+    parser.py                NNParser.parse_model — the public entry point
+    children.py              child/container/weight collection
+    resolution.py            ShapeResolver — fake mode + real fallback
+    lowering/                forward source AST -> instructions
       base.py, body.py, statements.py, control_flow.py
       calls.py, block_calls.py, expressions.py, operators.py
       values.py, naming.py, effects.py, runtime_ops.py, errors.py
 
-  model_parser/interpreter/   The schema interpreter
-    interpreter.py            SchemaInterpreter.run — public entry point
-    execution.py              op / block call / return execution
-    control_flow.py           if / for / try execution
-    scope.py                  scope seeding (weights, defaults, $self)
+  interpreter/               The schema interpreter
+    interpreter.py           SchemaInterpreter.run — public entry point
+    execution.py             op / block call / return execution
+    control_flow.py          if / for / try execution
+    scope.py                 scope seeding (weights, defaults, $self)
 
 tests/                       Validation harness and regressions
+docs/                        This documentation
 ```

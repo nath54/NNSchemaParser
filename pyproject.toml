@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nnschemaparser"
+version = "0.1.0"
+description = "Parse torch nn.Module models into an inspectable ModelBlockSchema graph and execute it with a faithful schema interpreter"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Cerisara Nathan" }]
+requires-python = ">=3.12"
+dependencies = ["torch>=2.0"]
+keywords = ["pytorch", "neural-network", "graph", "schema", "interpreter"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.optional-dependencies]
+test = ["transformers>=4.40"]
+
+[tool.setuptools.packages.find]
+include = ["nnschemaparser*"]
+
+[tool.setuptools.package-data]
+nnschemaparser = ["py.typed"]
