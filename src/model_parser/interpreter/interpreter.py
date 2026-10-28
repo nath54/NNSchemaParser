@@ -15,6 +15,7 @@ from typing import Any
 import inspect
 
 from src.core.model_schema import ModelBlockSchema
+from src.model_parser.forward import resolve_forward
 from src.core.instructions import (
     BlockInstruction,
     BlockRef,
@@ -100,11 +101,18 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
             scope (dict[str, Any]): The initial variables of the block.
         """
 
-        # Each weight is bound by its name in the block scope
+        # Each weight is bound by its name in the block scope. The live
+        # attribute of the source module is preferred over the parse time
+        # snapshot so that runtime mutations of the weights are visible
         weight_name: str
         weight: Any
         for weight_name, weight in block.weights.items():
-            scope.setdefault(weight_name, weight.value)
+            live: Any | None = getattr(block.module, weight_name, None) \
+                if block.module is not None else None
+            scope.setdefault(
+                weight_name,
+                live if live is not None else weight.value
+            )
 
     def _seed_forward_defaults(self, block: ModelBlockSchema, scope: dict[str, Any]) -> None:
         """
@@ -116,7 +124,9 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
         """
 
         # Get the signature of the forward method of the block
-        signature: inspect.Signature = inspect.signature(block.module.forward)
+        signature: inspect.Signature = inspect.signature(
+            resolve_forward(module=block.module)
+        )
         parameter_name: str
         parameter: inspect.Parameter
         for parameter_name, parameter in signature.parameters.items():
@@ -127,6 +137,11 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
 
             # Skip the arguments already provided by the caller
             if parameter_name in scope:
+                continue
+
+            # The var-keyword parameter receives an empty dict when unbound
+            if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+                scope.setdefault(parameter_name, {})
                 continue
 
             # Seed the scope with the default value of the argument

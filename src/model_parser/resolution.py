@@ -107,10 +107,15 @@ class ShapeResolver:
         for input_name, input_value in inputs_tensors_values.items():
             scope[input_name] = input_value.detach().clone()
 
-        # Seed the defaults of the forward arguments without a given value
-        scope.update(
-            forward_signature_defaults(module=block.module)
+        # Seed the defaults of the forward arguments without a given value,
+        # without overwriting the example values by the default None values
+        defaults: dict[str, Any] = forward_signature_defaults(
+            module=block.module
         )
+        default_name: str
+        default_value: Any
+        for default_name, default_value in defaults.items():
+            scope.setdefault(default_name, default_value)
 
         # Execute the schema with the real input tensors
         with torch.no_grad():
@@ -208,10 +213,15 @@ class ShapeResolver:
             inputs_tensors_dtypes=inputs_tensors_dtypes
         )
 
-        # Seed the defaults of the forward arguments without a given shape
-        scope.update(
-            forward_signature_defaults(module=block.module)
+        # Seed the defaults of the forward arguments without a given shape,
+        # without overwriting the input tensors by the default None values
+        defaults: dict[str, Any] = forward_signature_defaults(
+            module=block.module
         )
+        default_name: str
+        default_value: Any
+        for default_name, default_value in defaults.items():
+            scope.setdefault(default_name, default_value)
 
         # Return the scope of the resolution pass
         return scope
@@ -240,6 +250,8 @@ class ShapeResolver:
         shape: tuple[int, ...]
         for parameter_name, shape in inputs_tensors_shapes.items():
             dtype_name: str = inputs_tensors_dtypes.get(parameter_name, "float32")
+            # Accept both the short ("float32") and the full ("torch.float32") names
+            dtype_name = dtype_name.split(".")[-1]
             scope[parameter_name] = torch.empty(
                 size=shape,
                 dtype=getattr(torch, dtype_name)

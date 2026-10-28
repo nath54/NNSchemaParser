@@ -17,7 +17,9 @@ from src.core.instructions import Instruction
 from src.core.model_schema import ModelBlockSchema
 from src.core.tensor_schema import TensorRepr, TensorReprWithValue
 from src.model_parser.children import collect_sub_blocks
+from src.model_parser.forward import resolve_forward
 from src.model_parser.lowering import BodyLowering
+from src.model_parser.lowering.errors import UnsupportedSyntaxError
 from src.model_parser.resolution import ShapeResolver
 
 
@@ -51,7 +53,9 @@ class NNParser:
         """
 
         # Check the forward signature for unsupported argument kinds
-        signature: inspect.Signature = inspect.signature(model.forward)
+        signature: inspect.Signature = inspect.signature(
+            resolve_forward(module=model)
+        )
         NNParser._check_signature(signature=signature)
 
         # Collect the direct parameters and buffers of the model
@@ -62,7 +66,8 @@ class NNParser:
         # Collect the sub-blocks and the container names of the model
         model_sub_blocks: dict[str, ModelBlockSchema]
         container_names: set[str]
-        model_sub_blocks, container_names = collect_sub_blocks(
+        dict_container_names: set[str]
+        model_sub_blocks, container_names, dict_container_names = collect_sub_blocks(
             model=model,
             parse_model=NNParser.parse_model
         )
@@ -80,6 +85,7 @@ class NNParser:
             model=model,
             sub_block_names=set(model_sub_blocks.keys()),
             container_names=container_names,
+            dict_container_names=dict_container_names,
             weight_names=set(model_weights.keys()),
             literals=literals
         )
@@ -116,15 +122,19 @@ class NNParser:
             signature (inspect.Signature): The signature of the forward.
 
         Raises:
-            ValueError: When the forward has variadic arguments.
+            UnsupportedSyntaxError: When the forward has variadic positional
+                arguments.
         """
 
-        # A variadic argument cannot be mapped to the declared block inputs
+        # A variadic positional argument cannot be mapped to the declared
+        # block inputs, while a variadic keyword argument is simply ignored:
+        # it binds nothing in the body and receives no input value
         parameter: inspect.Parameter
         for parameter in signature.parameters.values():
-            if parameter.kind in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD):
-                raise ValueError(
-                    f"Unsupported argument kind in forward: {parameter.kind}"
+            if parameter.kind == parameter.VAR_POSITIONAL:
+                raise UnsupportedSyntaxError(
+                    f"Unsupported argument kind in forward: {parameter.kind}",
+                    signature
                 )
 
     @staticmethod
@@ -132,6 +142,7 @@ class NNParser:
         model: nn.Module,
         sub_block_names: set[str],
         container_names: set[str],
+        dict_container_names: set[str],
         weight_names: set[str],
         literals: dict[str, Any]
     ) -> tuple[list[Instruction], list[str]]:
@@ -142,6 +153,8 @@ class NNParser:
             model (nn.Module): The model whose forward is lowered.
             sub_block_names (set[str]): The names of the direct sub-blocks.
             container_names (set[str]): The names of the sub-block containers.
+            dict_container_names (set[str]): The names of the sub-block
+                dictionaries, whose calls are re-dispatched at run time.
             weight_names (set[str]): The names of the parameters and buffers.
             literals (dict[str, Any]): The plain python attribute values.
 
@@ -154,6 +167,7 @@ class NNParser:
         lowering: BodyLowering = BodyLowering(
             sub_block_names=sub_block_names,
             container_names=container_names,
+            dict_container_names=dict_container_names,
             weight_names=weight_names,
             literals=literals
         )
@@ -197,6 +211,11 @@ class NNParser:
 
             # The self parameter is not an input of the model
             if parameter_name == "self":
+                continue
+
+            # The variadic keyword argument is not an input of the model
+            if signature.parameters[parameter_name].kind == \
+                    inspect.Parameter.VAR_KEYWORD:
                 continue
 
             # The input shapes are unknown until the resolution pass

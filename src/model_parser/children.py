@@ -20,6 +20,10 @@ from src.model_parser.lowering.errors import UnsupportedSyntaxError
 ParseModel = Callable[..., ModelBlockSchema]
 
 
+# The names of the children skipped during the last parse, for the harnesses
+SKIPPED_CHILDREN: list[str] = []
+
+
 def parse_child(name: str, child: nn.Module, parse_model: ParseModel) -> ModelBlockSchema | None:
     """
     Parse a direct child module, returning None when it is not parsable.
@@ -39,6 +43,7 @@ def parse_child(name: str, child: nn.Module, parse_model: ParseModel) -> ModelBl
         return parse_model(model=child, inputs_tensors_shapes={})
     except UnsupportedSyntaxError as error:
         print(f"WARNING: skipped unparsable sub-block '{name}': {error}")
+        SKIPPED_CHILDREN.append(f"{name}: {error}")
         return None
 
 
@@ -106,12 +111,16 @@ def collect_sub_blocks(
         parse_model (ParseModel): The parser entry point used recursively.
 
     Returns:
-        tuple[dict[str, ModelBlockSchema], set[str]]: The parsed sub-blocks
-            by name and the names of the sub-block containers.
+        tuple[dict[str, ModelBlockSchema], set[str], set[str]]: The parsed
+            sub-blocks by name, the names of the sub-block containers and
+            the names of the sub-block dictionaries.
     """
 
     # Initialize the names of the containers of the model
     container_names: set[str] = set()
+
+    # Initialize the names of the sub-block dictionaries of the model
+    dict_container_names: set[str] = set()
 
     # Initialize the parsed sub-blocks of the model
     model_sub_blocks: dict[str, ModelBlockSchema] = {}
@@ -124,6 +133,8 @@ def collect_sub_blocks(
         # A container is parsed entry by entry with indexed keys
         if isinstance(child, (nn.ModuleList, nn.ModuleDict, nn.Sequential)):
             container_names.add(child_name)
+            if isinstance(child, nn.ModuleDict):
+                dict_container_names.add(child_name)
             model_sub_blocks.update(
                 parse_container(name=child_name, module=child, parse_model=parse_model)
             )
@@ -139,4 +150,4 @@ def collect_sub_blocks(
                 model_sub_blocks[child_name] = parsed_child
 
     # Return the parsed sub-blocks and the container names of the model
-    return model_sub_blocks, container_names
+    return model_sub_blocks, container_names, dict_container_names

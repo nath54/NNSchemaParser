@@ -8,6 +8,8 @@ containers, and the try statements with their exception handlers.
 # Import Modules
 from typing import Any
 
+import torch.nn as nn
+
 from src.core.instructions import ControlInstruction, Instruction, TryInstruction
 from src.core.model_schema import ModelBlockSchema
 from src.model_parser.container_keys import (
@@ -220,13 +222,41 @@ class ControlFlowExecutor:
                 container_name=container_path
             )
 
+            # The entries skipped at parse time are missing from the parsed
+            # sub-blocks: the real container is iterated to include them
+            real_container: Any | None = None
+            if block.module is not None:
+                real_container = getattr(block.module, container_path, None)
+            if isinstance(real_container, (nn.ModuleList, nn.Sequential)):
+                missing_index: int
+                for missing_index in range(len(real_container)):
+                    missing_key: str = f"{container_path}.{missing_index}"
+                    if missing_key not in entry_keys:
+                        entry_keys.append(missing_key)
+                entry_keys.sort(key=container_entry_sort_key)
+            elif isinstance(real_container, nn.ModuleDict):
+                missing_key_entry: str
+                for missing_key_entry in real_container.keys():
+                    missing_key = f"{container_path}.{missing_key_entry}"
+                    if missing_key not in entry_keys:
+                        entry_keys.append(missing_key)
+                entry_keys.sort(key=container_entry_sort_key)
+
         # Execute the loop body once per entry of the container
         entry_index: int
         entry_key: str
         for entry_index, entry_key in enumerate(entry_keys):
 
-            # Bind the loop variable to the entry sub-block schema
-            scope[instruction.bind_var] = block.sub_blocks[entry_key]
+            # Bind the loop variable to the entry sub-block schema, or to
+            # the real module for an entry skipped at parse time
+            parsed_entry: ModelBlockSchema | None = block.sub_blocks.get(entry_key)
+            if parsed_entry is not None:
+                scope[instruction.bind_var] = parsed_entry
+            else:
+                entry_name: str = entry_key.rsplit(".", 1)[1]
+                scope[instruction.bind_var] = real_container[
+                    int(entry_name) if entry_name.isdigit() else entry_name
+                ]
 
             # Bind the enumerate index variable when defined
             if instruction.index_var is not None:

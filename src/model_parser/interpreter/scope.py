@@ -13,6 +13,7 @@ import inspect
 from torch import Tensor
 
 from src.core.tensor_schema import TensorRepr
+from src.model_parser.forward import resolve_forward
 
 
 # The placeholder dtype of unresolved tensor representations
@@ -64,7 +65,9 @@ def forward_signature_defaults(module: Any) -> dict[str, Any]:
     """
 
     # Get the signature of the forward method of the module
-    signature: inspect.Signature = inspect.signature(module.forward)
+    signature: inspect.Signature = inspect.signature(
+        resolve_forward(module=module)
+    )
 
     # Collect the defaults of the forward arguments
     defaults: dict[str, Any] = {}
@@ -74,6 +77,11 @@ def forward_signature_defaults(module: Any) -> dict[str, Any]:
 
         # Skip the self parameter of the forward method
         if parameter_name == "self":
+            continue
+
+        # The var-keyword parameter receives an empty dict when unbound
+        if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+            defaults[parameter_name] = {}
             continue
 
         # Only the parameters with a default value provide a default

@@ -13,9 +13,12 @@ import inspect
 
 from torch import Tensor
 
+import torch.nn as nn
+
 from src.core.instructions import BlockInstruction, OpInstruction, ReturnInstruction, VarRef
 from src.core.model_schema import ModelBlockSchema
 from src.core.tensor_schema import TensorRepr, TensorReprWithValue
+from src.model_parser.forward import resolve_forward
 from src.model_parser.interpreter.scope import (
     PLACEHOLDER_DTYPE,
     resolve_placeholder
@@ -50,6 +53,18 @@ class InstructionExecutor:
             for key, value in instruction.kwargs.items()
         }
 
+        # Merge the variable unpacked as the extra keyword arguments
+        if instruction.kwargs_var is not None:
+            unpacked: Any = scope.get(instruction.kwargs_var)
+            if unpacked:
+                resolved_kwargs.update(unpacked)
+
+        # Extend the positional arguments with the unpacked variable
+        if instruction.args_var is not None:
+            star_args: Any = scope.get(instruction.args_var)
+            if star_args is not None:
+                resolved_args.extend(star_args)
+
         # Resolve the target callable from the scope if it is a variable
         call_target: Any = instruction.target
         if isinstance(call_target, VarRef):
@@ -79,6 +94,40 @@ class InstructionExecutor:
             scope (dict[str, Any]): The current variables of the block.
         """
 
+        # A loop variable bound to a real module is a skipped container
+        # entry: the real module is called directly like an operation
+        if instruction.block_ref.index_var is not None:
+            bound: Any = scope.get(instruction.block_ref.index_var)
+            if isinstance(bound, nn.Module):
+                self._execute_real_module_call(
+                    instruction=instruction,
+                    module=bound,
+                    scope=scope
+                )
+                return
+
+        # A container entry skipped at parse time is dispatched to its
+        # real module through the parent of the block
+        if instruction.block_ref.index_var is not None and \
+                f"{instruction.block_ref.path}.{scope.get(instruction.block_ref.index_var)}" \
+                not in block.sub_blocks and block.module is not None:
+            container: Any = getattr(
+                block.module, instruction.block_ref.path, None
+            )
+            index: Any = scope.get(instruction.block_ref.index_var)
+            if container is not None:
+                try:
+                    entry: Any = container[index]
+                except Exception:  # noqa: BLE001 - fall through to the lookup
+                    entry = None
+                if isinstance(entry, nn.Module):
+                    self._execute_real_module_call(
+                        instruction=instruction,
+                        module=entry,
+                        scope=scope
+                    )
+                    return
+
         # Get the target sub-block schema from the reference
         sub_block: ModelBlockSchema = self._get_sub_block(
             block=block,
@@ -106,6 +155,42 @@ class InstructionExecutor:
         # Fill the resolved representation of the instruction
         if len(result) == 1:
             instruction.resolve(value=result[0], capture_values=self.capture_values)
+
+    def _execute_real_module_call(
+        self,
+        instruction: BlockInstruction,
+        module: nn.Module,
+        scope: dict[str, Any]
+    ) -> None:
+        """
+        Execute a block call bound to a real module of a skipped container
+        entry, re-dispatching to the module like an operation.
+
+        Args:
+            instruction (BlockInstruction): The block call instruction.
+            module (nn.Module): The real module bound to the loop variable.
+            scope (dict[str, Any]): The current variables of the block.
+        """
+
+        # Resolve all the positional arguments of the call from the scope
+        resolved_args: list[Any] = [
+            self._resolve_value(value=arg, scope=scope) for arg in instruction.args
+        ]
+
+        # Resolve all the keyword arguments of the call from the scope
+        resolved_kwargs: dict[str, Any] = {
+            key: self._resolve_value(value=value, scope=scope)
+            for key, value in instruction.kwargs.items()
+        }
+
+        # Call the real module with the resolved arguments
+        result: Any = module(*resolved_args, **resolved_kwargs)
+
+        # Bind the result to the output variable of the instruction
+        scope[instruction.out_var] = result
+
+        # Fill the resolved representation of the instruction
+        instruction.resolve(value=result, capture_values=self.capture_values)
 
     def _build_sub_scope(
         self,
@@ -199,10 +284,19 @@ class InstructionExecutor:
             )
 
         # Else the declared arguments of the instruction are the arguments
-        return [
+        resolved: list[Any] = [
             self._resolve_value(value=arg, scope=scope)
             for arg in instruction.args
         ]
+
+        # Extend the resolved arguments with the unpacked variable
+        if instruction.args_var is not None:
+            star_args: Any = scope.get(instruction.args_var)
+            if star_args is not None:
+                resolved.extend(star_args)
+
+        # Return the resolved positional arguments of the call
+        return resolved
 
     def _bind_call_kwargs(
         self,
@@ -214,6 +308,11 @@ class InstructionExecutor:
         """
         Bind the keyword arguments of a sub-block call to its declared inputs.
 
+        The explicit keyword arguments are merged with the variable unpacked
+        as the extra keyword arguments (the **kwargs of the call). The keys
+        matching a declared input are bound by name, the other keys are
+        gathered into the var-keyword parameter of the sub-block forward.
+
         Args:
             instruction (BlockInstruction): The block call instruction.
             sub_block (ModelBlockSchema): The called sub-block schema.
@@ -221,24 +320,70 @@ class InstructionExecutor:
             sub_scope (dict[str, Any]): The scope of the sub-block execution.
 
         Raises:
-            KeyError: When a keyword argument is not a declared input.
+            KeyError: When a keyword argument matches no declared input and
+                the sub-block forward has no var-keyword parameter.
         """
 
-        # Bind each keyword argument value to the sub-block input name
-        kwarg_name: str
-        for kwarg_name in instruction.kwargs:
+        # The explicit keyword arguments of the call resolved from the scope
+        resolved: dict[str, Any] = {
+            key: self._resolve_value(value=value, scope=scope)
+            for key, value in instruction.kwargs.items()
+        }
 
-            # Only the declared inputs of the sub-block can be bound
-            if kwarg_name not in sub_block.inputs:
+        # The variable unpacked as the extra keyword arguments, if any
+        if instruction.kwargs_var is not None:
+            unpacked: Any = scope.get(instruction.kwargs_var)
+            if unpacked:
+                resolved.update(unpacked)
+
+        # The name of the var-keyword parameter of the sub-block forward
+        var_kw_name: str | None = self._var_keyword_name(sub_block=sub_block)
+
+        # Bind each keyword argument to the declared input or the extra dict
+        extra: dict[str, Any] = {}
+        key: str
+        value: Any
+        for key, value in resolved.items():
+
+            # The declared inputs are bound by name
+            if key in sub_block.inputs:
+                sub_scope[key] = value
+            elif var_kw_name is not None:
+                extra[key] = value
+            else:
                 raise KeyError(
-                    f"Unknown keyword argument for sub-block: {kwarg_name}"
+                    f"Unknown keyword argument for sub-block: {key}"
                 )
 
-            # Bind the keyword argument value to the sub-block input name
-            sub_scope[kwarg_name] = self._resolve_value(
-                value=instruction.kwargs[kwarg_name],
-                scope=scope
-            )
+        # Bind the var-keyword dict of the sub-block forward, even when
+        # empty, so the body references of the sub-block find the variable
+        if var_kw_name is not None:
+            sub_scope[var_kw_name] = extra
+
+    def _var_keyword_name(self, sub_block: ModelBlockSchema) -> str | None:
+        """
+        Get the name of the var-keyword parameter of a sub-block forward.
+
+        Args:
+            sub_block (ModelBlockSchema): The called sub-block schema.
+
+        Returns:
+            str | None: The name of the **kwargs parameter, or None when the
+                sub-block has no module or no var-keyword parameter.
+        """
+
+        # Without a source module there is no signature to inspect
+        if sub_block.module is None:
+            return None
+
+        # Find the var-keyword parameter of the forward method
+        parameter: inspect.Parameter
+        for name, parameter in inspect.signature(
+            resolve_forward(module=sub_block.module)
+        ).parameters.items():
+            if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+                return name
+        return None
 
     def _execute_return(
         self,
@@ -343,7 +488,9 @@ class InstructionExecutor:
             return {}
 
         # Get the signature of the sub-block forward method
-        signature: inspect.Signature = inspect.signature(sub_block.module.forward)
+        signature: inspect.Signature = inspect.signature(
+            resolve_forward(module=sub_block.module)
+        )
 
         # Collect the defaults of the missing arguments
         defaults: dict[str, Any] = {}
