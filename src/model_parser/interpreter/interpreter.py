@@ -25,9 +25,6 @@ from src.core.instructions import (
     TryInstruction,
     VarRef
 )
-from src.model_parser.interpreter.execution import InstructionExecutor
-from src.model_parser.interpreter.control_flow import ControlFlowExecutor
-from src.core.model_schema import ModelBlockSchema
 from src.model_parser.interpreter.control_flow import ControlFlowExecutor
 from src.model_parser.interpreter.execution import InstructionExecutor
 
