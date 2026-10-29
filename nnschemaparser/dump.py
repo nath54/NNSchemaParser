@@ -9,6 +9,7 @@ the instruction body of every block, with the resolved shapes of every step.
 # Import Modules
 from typing import Any
 
+import torch
 from torch import Tensor
 
 from nnschemaparser.core.instructions import (
@@ -80,6 +81,11 @@ def describe_value(value: Any) -> str:
     # Tensors get the shape, dtype and value statistics
     if isinstance(value, Tensor):
         detached: Tensor = value.detach()
+
+        # The boolean tensors have no abs implementation, and their
+        # statistics are identical in float32
+        if detached.dtype == torch.bool:
+            detached = detached.float()
         return (
             f"{detached.dtype}{list(detached.shape)} "
             f"abs_sum={detached.abs().sum().item():.4f} "
