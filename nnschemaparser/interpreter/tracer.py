@@ -17,7 +17,7 @@ from nnschemaparser.core.instructions import (
     TryInstruction
 )
 from nnschemaparser.core.model_schema import ModelBlockSchema
-from nnschemaparser.dump import MAX_LINES, describe_value
+from nnschemaparser.dump import MAX_LINES, describe_ref, describe_value
 
 
 def _module_type_name(block: ModelBlockSchema) -> str:
@@ -230,12 +230,14 @@ class TraceRecorder(TraceListener):
         """
 
         # The target, arguments and result of the operation
-        args: str = ", ".join(
-            value.name if hasattr(value, "name") else repr(value)[:40]
-            for value in instruction.args
+        args: str = ", ".join(describe_ref(arg) for arg in instruction.args)
+        kwargs: str = ", ".join(
+            f"{key}={describe_ref(value)}"
+            for key, value in instruction.kwargs.items()
         )
+        all_args: str = ", ".join(part for part in (args, kwargs) if part)
         self._log(
-            f"{instruction.out_var} = {instruction.qualified_name}({args})"
+            f"{instruction.out_var} = {instruction.qualified_name}({all_args})"
             f"  [{describe_value(scope.get(instruction.out_var))}]"
         )
 
@@ -255,12 +257,13 @@ class TraceRecorder(TraceListener):
             scope (dict[str, Any]): The scope holding the result.
         """
 
-        # The called module type and the result of the call
+        # The called module type, arguments and result of the call
         module_type: str = _module_type_name(block=sub_block) \
             if sub_block is not None else "?"
+        args: str = ", ".join(describe_ref(arg) for arg in instruction.args)
         self._log(
-            f"{instruction.out_var} = CALL "
-            f"{instruction.block_ref.path} [{module_type}]"
+            f"{instruction.out_var} = CALL {instruction.block_ref.path}({args})"
+            f" [{module_type}]"
             f"  [{describe_value(scope.get(instruction.out_var))}]"
         )
 

@@ -328,7 +328,7 @@ class CallLowering(LoweringContext):
         ):
             self._emit_op(
                 target=VarRef(name=call.func.id),
-                qualified_name=f"{call.func.id}()",
+                qualified_name=call.func.id,
                 args=args,
                 kwargs=kwargs,
                 out_var=out_var,
@@ -345,7 +345,7 @@ class CallLowering(LoweringContext):
             self._lower_call(call=call.func, body=body, out_var=inner_var)
             self._emit_op(
                 target=VarRef(name=inner_var),
-                qualified_name="call()",
+                qualified_name=inner_var,
                 args=args,
                 kwargs=kwargs,
                 out_var=out_var,
@@ -513,10 +513,13 @@ class CallLowering(LoweringContext):
             body=body
         )
 
+        # The display name of the receiver for the call instruction
+        receiver: str = obj.name if isinstance(obj, VarRef) else repr(obj)[:40]
+
         # Call the resolved method
         self._emit_op(
             target=VarRef(name=method_var),
-            qualified_name=f"{call.func.attr}()",
+            qualified_name=f"{receiver}.{call.func.attr}",
             args=args,
             kwargs=kwargs,
             out_var=out_var,

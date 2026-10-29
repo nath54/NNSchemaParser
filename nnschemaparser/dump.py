@@ -108,6 +108,10 @@ def describe_value(value: Any) -> str:
             if isinstance(item, (Tensor, tuple, list, dict))
         ) + "}"
 
+    # The common scalar values are described by their repr, briefly
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return repr(value)[:60]
+
     # Any other python value is shown by type and repr, briefly
     return f"{type(value).__name__}({repr(value)[:60]})"
 
@@ -126,6 +130,10 @@ def describe_ref(value: VarRef | Any) -> str:
     # The name of the referenced variable
     if isinstance(value, VarRef):
         return value.name
+
+    # The classes are described by their name (e.g. exception types)
+    if isinstance(value, type):
+        return value.__name__
     return repr(value)[:40]
 
 
@@ -207,6 +215,8 @@ def instruction_line(instruction: Instruction) -> str:
 
     # The return statement
     if isinstance(instruction, ReturnInstruction):
+        if not instruction.out_vars:
+            return "RETURN"
         return "RETURN " + ", ".join(instruction.out_vars)
 
     # The control flow is described by the recursive dumper

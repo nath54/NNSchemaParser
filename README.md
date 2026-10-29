@@ -87,7 +87,7 @@ sub-blocks:
 body:
   hidden = CALL fc1(x)  -> torch.float32[2, 256]
   $t1 = getattr(hidden, 'relu')  -> builtin_function_or_method
-  activated = relu()()  -> torch.float32[2, 256]
+  activated = hidden.relu()  -> torch.float32[2, 256]
   $t2 = CALL fc2(activated)  -> torch.float32[2, 10]
   RETURN $t2
 ```
