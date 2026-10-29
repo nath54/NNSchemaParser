@@ -314,6 +314,10 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
         if isinstance(index, ModelBlockSchema):
             return index
 
+        # The self container entries are keyed by their index only
+        if block_ref.path == "$self":
+            return block.sub_blocks[str(index)]
+
         # The sub-block is a container entry, its key is "path.index"
         entry_key: str = f"{block_ref.path}.{index}"
 

@@ -179,10 +179,14 @@ class CallLowering(LoweringContext):
             bool: Whether the call is a self.<container>[index](...) call.
         """
 
-        # The call must subscript a container attribute of self
+        # The call must subscript a container attribute of self, or self
+        # itself when the module is its own container (nn.ModuleList)
+        if not isinstance(call.func, ast.Subscript):
+            return False
+        if isinstance(call.func.value, ast.Name) and call.func.value.id == "self":
+            return True
         return (
-            isinstance(call.func, ast.Subscript)
-            and isinstance(call.func.value, ast.Attribute)
+            isinstance(call.func.value, ast.Attribute)
             and isinstance(call.func.value.value, ast.Name)
             and call.func.value.value.id == "self"
             and call.func.value.attr in self.container_names
@@ -207,6 +211,14 @@ class CallLowering(LoweringContext):
             str: The name of the variable the result is bound to.
         """
 
+        # The container being indexed is self itself for a self subscript,
+        # else the container attribute of self
+        container_name: str
+        if isinstance(call.func.value, ast.Name):
+            container_name = "$self"
+        else:
+            container_name = call.func.value.attr
+
         # A negative constant index counts from the end of the container, so
         # it is normalized with the entry count of the container. Note that
         # the python syntax -1 is a unary minus on a positive constant, not
@@ -228,7 +240,7 @@ class CallLowering(LoweringContext):
             entry_count: int = len(
                 container_entry_keys(
                     sub_block_names=self.sub_block_names,
-                    container_name=call.func.value.attr
+                    container_name=container_name
                 )
             )
             index_expr = ast.Constant(value=entry_count + index_value)
@@ -241,7 +253,7 @@ class CallLowering(LoweringContext):
 
         # Lower the block call with the indexed block reference
         return self._lower_block_call(
-            block_ref=BlockRef(path=call.func.value.attr, index_var=index_var),
+            block_ref=BlockRef(path=container_name, index_var=index_var),
             call=call,
             body=body,
             out_var=out_var,

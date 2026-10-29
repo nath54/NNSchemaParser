@@ -46,6 +46,16 @@ def container_entry_keys(
         list[str]: The entry keys sorted by their numeric suffix.
     """
 
+    # The special self path holds the direct numeric entries of the module
+    if container_name == "$self":
+        return sorted(
+            [
+                sub_block_name for sub_block_name in sub_block_names
+                if sub_block_name.isdigit()
+            ],
+            key=container_entry_sort_key
+        )
+
     # Collect the sub-block keys of the container entries
     keys: list[str] = [
         sub_block_name for sub_block_name in sub_block_names

@@ -102,3 +102,22 @@ class SetitemModel(nn.Module):
 
 
 check("setitem", SetitemModel(), torch.randn(3, 4))
+
+
+class IndexedSelfModel(nn.ModuleList):
+    """Calls its own entries through self[index](...)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.append(nn.Linear(4, 4))
+        self.append(nn.ReLU())
+        self.append(nn.Linear(4, 4))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self[0](x)
+        x = self[1](x)
+        x = self[-1](x)
+        return x
+
+
+check("indexed_self", IndexedSelfModel(), torch.randn(2, 4))

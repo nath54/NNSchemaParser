@@ -318,11 +318,19 @@ class InstructionExecutor:
         # A container entry skipped at parse time is dispatched to its
         # real module through the parent of the block
         if instruction.block_ref.index_var is not None and \
-                f"{instruction.block_ref.path}.{scope.get(instruction.block_ref.index_var)}" \
-                not in block.sub_blocks and block.module is not None:
-            container: Any = getattr(
-                block.module, instruction.block_ref.path, None
-            )
+                _container_entry_key(
+                    path=instruction.block_ref.path,
+                    index=scope.get(instruction.block_ref.index_var)
+                ) not in block.sub_blocks and block.module is not None:
+
+            # The self container entries are the direct children of the
+            # module, reached on the module itself
+            if instruction.block_ref.path == "$self":
+                container: Any = block.module
+            else:
+                container = getattr(
+                    block.module, instruction.block_ref.path, None
+                )
             index: Any = scope.get(instruction.block_ref.index_var)
             if container is not None:
                 try:
@@ -737,3 +745,23 @@ class InstructionExecutor:
 
         # Return the collected defaults
         return defaults
+
+
+def _container_entry_key(path: str, index: Any) -> str:
+    """
+    Get the sub-block key of a container entry from its path and index.
+
+    Args:
+        path (str): The path of the container, "$self" for the module.
+        index (Any): The index of the entry in the container.
+
+    Returns:
+        str: The key of the entry in the sub-block dictionary.
+    """
+
+    # The self container entries are keyed by their index only
+    if path == "$self":
+        return str(index)
+
+    # The container entries are keyed by "path.index"
+    return f"{path}.{index}"
