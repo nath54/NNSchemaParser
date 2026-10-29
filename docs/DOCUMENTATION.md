@@ -78,7 +78,9 @@ For each module (`children.py`, `container_keys.py`):
 
 A child whose forward cannot be lowered is **skipped
 from the tree** instead of aborting the whole parse: the parser records the
-skip, and the interpreter transparently re-dispatches calls to that child to
+skip in the `skipped` dict of the parent `ModelBlockSchema` (name → reason,
+also shown in the dumps as "skipped (re-dispatched at run time)"), and the
+interpreter transparently re-dispatches calls to that child to
 its **real module** at execution time. The graph stays runnable and the values
 stay exact; only the expansion of that child is not shown.
 
