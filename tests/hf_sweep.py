@@ -37,7 +37,8 @@ from nnschemaparser.core.model_schema import ModelBlockSchema  # noqa: E402
 from nnschemaparser.parser.children import SKIPPED_CHILDREN, collect_sub_blocks  # noqa: E402
 from nnschemaparser.interpreter import SchemaInterpreter  # noqa: E402
 from nnschemaparser.parser.parser import NNParser  # noqa: E402
-from tests.hf_dump import TraceRecorder, describe_value, dump_schema, install_tracer, uninstall_tracer  # noqa: E402
+from nnschemaparser.dump import describe_value, dump_schema  # noqa: E402
+from tests.hf_dump import TraceRecorder, install_tracer, uninstall_tracer  # noqa: E402
 from tests.hf_registry import MODEL_SPECS, ModelSpec  # noqa: E402
 
 # The output directories of the sweep

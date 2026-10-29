@@ -1,309 +1,24 @@
 """
-Dumpers of the parser robustness sweep.
+Trace recorder of the parser robustness sweep.
 
-The schema dumper writes a readable recursive text view of a
-ModelBlockSchema. The trace recorder hooks the schema interpreter and writes
-a chronological operation per operation log of an inference with the value
-signatures of every intermediate tensor.
+The recorder hooks the schema interpreter and writes a chronological
+operation per operation log of an inference with the value signatures of
+every intermediate tensor. The pure schema dumpers live in the package
+(nnschemaparser.dump) and are re-exported here for convenience.
 """
 
 # Import Modules
 from typing import Any
 
-import torch
-from torch import Tensor
-
 from nnschemaparser.core.instructions import (
     BlockInstruction,
     ControlInstruction,
-    Instruction,
     OpInstruction,
-    ReturnInstruction,
-    TryInstruction,
-    VarRef
+    TryInstruction
 )
 from nnschemaparser.core.model_schema import ModelBlockSchema
-from nnschemaparser.core.tensor_schema import TensorRepr, TensorReprWithValue
+from nnschemaparser.dump import MAX_LINES, describe_value, dump_schema  # noqa: F401
 from nnschemaparser.interpreter import SchemaInterpreter
-
-# The maximum number of lines written to a dump file
-MAX_LINES: int = 20000
-
-
-def describe_value(value: Any) -> str:
-    """
-    Describe a runtime value with its shape and value statistics.
-
-    Args:
-        value (Any): The value to describe.
-
-    Returns:
-        str: The human readable description of the value.
-    """
-
-    # Tensors get the shape, dtype and value statistics
-    if isinstance(value, Tensor):
-        detached: Tensor = value.detach()
-        return (
-            f"{detached.dtype}{list(detached.shape)} "
-            f"abs_sum={detached.abs().sum().item():.4f} "
-            f"min={detached.min().item():.4f} max={detached.max().item():.4f}"
-        )
-
-    # Sequences are described item by item, briefly
-    if isinstance(value, (tuple, list)):
-        items: list[str] = [
-            describe_value(item) if isinstance(item, (Tensor, tuple, list))
-            else type(item).__name__ for item in value
-        ]
-        return "(" + ", ".join(items) + ")"
-
-    # Dictionaries from the model outputs
-    if isinstance(value, dict):
-        return "{" + ", ".join(
-            f"{key}: {describe_value(item)}"
-            for key, item in value.items()
-            if isinstance(item, (Tensor, tuple, list, dict))
-        ) + "}"
-
-    # Any other python value is shown by type and repr, briefly
-    return f"{type(value).__name__}({repr(value)[:60]})"
-
-
-def describe_ref(value: VarRef | Any) -> str:
-    """
-    Describe an instruction argument, variable references by name.
-
-    Args:
-        value (VarRef | Any): The argument to describe.
-
-    Returns:
-        str: The name of the referenced variable, or a short repr.
-    """
-
-    # The name of the referenced variable
-    if isinstance(value, VarRef):
-        return value.name
-    return repr(value)[:40]
-
-
-def describe_repr(repr_: TensorRepr | None) -> str:
-    """
-    Describe the resolved representation of an instruction output.
-
-    Args:
-        repr_ (TensorRepr | None): The resolved representation, or None.
-
-    Returns:
-        str: The dtype, shape and value statistics of the representation.
-    """
-
-    # No representation resolved yet
-    if repr_ is None:
-        return "(unresolved)"
-
-    # The plain shape and dtype of the output
-    if not isinstance(repr_, TensorReprWithValue):
-        return f"-> {repr_.dtype}{list(repr_.shape)}"
-
-    # With the captured value statistics
-    return "-> " + describe_value(repr_.value)
-
-
-def instruction_line(instruction: Instruction) -> str:
-    """
-    Build the one line description of an instruction.
-
-    Args:
-        instruction (Instruction): The instruction to describe.
-
-    Returns:
-        str: The human readable description of the instruction.
-    """
-
-    # The operation call
-    if isinstance(instruction, OpInstruction):
-        args: str = ", ".join(
-            describe_ref(arg) for arg in instruction.args
-        )
-        kwargs: str = ", ".join(
-            f"{key}={describe_ref(value)}"
-            for key, value in instruction.kwargs.items()
-        )
-        all_args: str = ", ".join(part for part in (args, kwargs) if part)
-        return f"{instruction.out_var} = {instruction.qualified_name}({all_args})"
-
-    # The sub-block call
-    if isinstance(instruction, BlockInstruction):
-        args = ", ".join(describe_ref(arg) for arg in instruction.args)
-        kwargs = ", ".join(
-            f"{key}={describe_ref(value)}"
-            for key, value in instruction.kwargs.items()
-        )
-        all_args = ", ".join(part for part in (args, kwargs) if part)
-        splat: str = " *splat" if instruction.splat_args else ""
-        index: str = ""
-        if instruction.block_ref.index_var is not None:
-            index = f"[{instruction.block_ref.index_var}]"
-        return (
-            f"{instruction.out_var} = CALL "
-            f"{instruction.block_ref.path}{index}({all_args}){splat}"
-        )
-
-    # The return statement
-    if isinstance(instruction, ReturnInstruction):
-        return "RETURN " + ", ".join(instruction.out_vars)
-
-    # The control flow is described by the recursive dumper
-    if isinstance(instruction, ControlInstruction):
-        if instruction.kind == "for":
-            return (
-                f"for {instruction.bind_var} in "
-                f"{instruction.iter_container.path if instruction.iter_container else '?'}"
-            )
-        return "if <condition>"
-
-    # The try statement
-    if isinstance(instruction, TryInstruction):
-        return "TRY"
-
-    # Any other instruction kind
-    return f"{type(instruction).__name__}(out_var={instruction.out_var})"
-
-
-def dump_instructions(
-    body: list[Instruction],
-    lines: list[str],
-    indent: str
-) -> None:
-    """
-    Recursively write the instructions of a body to the lines.
-
-    Args:
-        body (list[Instruction]): The instructions of the body.
-        lines (list[str]): The output lines, updated in place.
-        indent (str): The current indentation prefix.
-    """
-
-    # Write each instruction of the body
-    instruction: Instruction
-    for instruction in body:
-
-        # Stop when the line budget is reached
-        if len(lines) >= MAX_LINES:
-            lines.append(indent + "... (truncated)")
-            return
-
-        # The operation, block call and return instructions
-        line: str = instruction_line(instruction)
-        lines.append(f"{indent}{line}  {describe_repr(instruction.resolved)}")
-
-        # The control flow bodies are dumped recursively
-        if isinstance(instruction, ControlInstruction):
-            if instruction.condition is not None and instruction.kind == "if":
-                lines.append(
-                    f"{indent}  condition: {instruction_line(instruction.condition)}"
-                )
-            dump_instructions(instruction.body, lines, indent + "    ")
-            if instruction.else_body:
-                lines.append(f"{indent}  else:")
-                dump_instructions(instruction.else_body, lines, indent + "    ")
-
-        # The try handlers and the finally body
-        if isinstance(instruction, TryInstruction):
-            types: tuple[type[BaseException], ...]
-            for types, handler_body in instruction.handlers:
-                names: str = "|".join(t.__name__ for t in types) or "?"
-                lines.append(f"{indent}  except {names}:")
-                dump_instructions(handler_body, lines, indent + "    ")
-            if instruction.final_body:
-                lines.append(f"{indent}  finally:")
-                dump_instructions(instruction.final_body, lines, indent + "    ")
-
-
-def dump_block(
-    block: ModelBlockSchema,
-    lines: list[str],
-    indent: str = ""
-) -> None:
-    """
-    Recursively write a block schema to the lines.
-
-    Args:
-        block (ModelBlockSchema): The block schema to dump.
-        lines (list[str]): The output lines, updated in place.
-        indent (str): The current indentation prefix.
-    """
-
-    # Stop when the line budget is reached
-    if len(lines) >= MAX_LINES:
-        return
-
-    # The header with the module class of the block
-    module_type: str = type(block.module).__name__ \
-        if block.module is not None else "?"
-    lines.append(f"{indent}=== BLOCK {module_type} ===")
-
-    # The declared inputs, weights and sub-blocks of the block
-    lines.append(
-        f"{indent}inputs: "
-        + ", ".join(
-            f"{name} {repr_.dtype}{list(repr_.shape)}"
-            for name, repr_ in block.inputs.items()
-        )
-    )
-    lines.append(
-        f"{indent}weights: "
-        + ", ".join(
-            f"{name} {repr_.dtype}{list(repr_.shape)}"
-            for name, repr_ in block.weights.items()
-        )
-    )
-    lines.append(
-        f"{indent}sub-blocks: "
-        + (
-            ", ".join(
-                f"{name}({type(sub.module).__name__ if sub.module else '?'})"
-                for name, sub in block.sub_blocks.items()
-            )
-            or "(none)"
-        )
-    )
-
-    # The body instructions of the block
-    lines.append(f"{indent}body:")
-    dump_instructions(block.body, lines, indent + "  ")
-
-    # The declared outputs of the block
-    lines.append(
-        f"{indent}outputs: "
-        + ", ".join(
-            f"{repr_.dtype}{list(repr_.shape)}" for repr_ in block.outputs
-        )
-    )
-    lines.append("")
-
-    # The sub-blocks are dumped recursively
-    sub_name: str
-    sub_block: ModelBlockSchema
-    for sub_name, sub_block in block.sub_blocks.items():
-        dump_block(sub_block, lines, indent + "  ")
-
-
-def dump_schema(schema: ModelBlockSchema, path: str) -> None:
-    """
-    Write the readable text dump of a block schema.
-
-    Args:
-        schema (ModelBlockSchema): The parsed schema to dump.
-        path (str): The path of the output text file.
-    """
-
-    # The recursive dump of the whole schema tree
-    lines: list[str] = []
-    dump_block(schema, lines)
-    with open(path, "w", encoding="utf-8") as handle:
-        handle.write("\n".join(lines) + "\n")
 
 
 class TraceRecorder:
@@ -389,7 +104,10 @@ class TraceRecorder:
         """
 
         # The target, arguments and result of the operation
-        args: str = ", ".join(describe_ref(arg) for arg in instruction.args)
+        args: str = ", ".join(
+            value.name if hasattr(value, "name") else repr(value)[:40]
+            for value in instruction.args
+        )
         self.log(
             f"{instruction.out_var} = {instruction.qualified_name}({args})"
             f"  [{describe_value(scope.get(instruction.out_var))}]"
@@ -408,7 +126,6 @@ class TraceRecorder:
             instruction (BlockInstruction): The executed block call.
             sub_block (ModelBlockSchema | None): The called sub-block, None
                 for a skipped container entry re-dispatched at runtime.
-            sub_block (ModelBlockSchema): The called sub-block.
             scope (dict[str, Any]): The scope holding the result.
         """
 

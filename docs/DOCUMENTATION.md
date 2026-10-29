@@ -267,7 +267,8 @@ The validation harness includes two text dumps used for debugging and for the
 WebUI fixtures:
 
 ```python
-from tests.hf_dump import dump_schema, TraceRecorder, install_tracer, uninstall_tracer
+from nnschemaparser import dump_schema
+from tests.hf_dump import TraceRecorder, install_tracer, uninstall_tracer
 
 dump_schema(schema=schema, path="schema.txt")   # full recursive block dump
 
@@ -278,6 +279,27 @@ try:
 finally:
     uninstall_tracer()
 tracer.save("trace.txt")                        # one line per operation, with values
+```
+
+The schema dump shows, for every block, its inputs, outputs, weights and
+sub-blocks, then the instruction body with the resolved shape of every step:
+
+```
+=== BLOCK MLP ===
+inputs:
+  - x = torch.float32[2, 784]
+outputs:
+  - torch.float32[2, 10]
+weights:
+  (none)
+sub-blocks:
+  - fc1(Linear)
+  - fc2(Linear)
+body:
+  hidden = CALL fc1(x)  -> torch.float32[2, 256]
+  activated = F.relu(hidden)  -> torch.float32[2, 256]
+  $t1 = CALL fc2(activated)  -> torch.float32[2, 10]
+  RETURN $t1
 ```
 
 ## 6. Supported syntax
@@ -463,6 +485,7 @@ model so the full sweep fits on a small disk.
 nnschemaparser/              The package (pip installable)
   __init__.py                Public API: NNParser, SchemaInterpreter, schema types
   forward.py                 forward unwrapping (transformers v5 decorators)
+  dump.py                    readable text dumpers of a schema tree
 
   core/                      The schema data model
     model_schema.py          ModelBlockSchema
