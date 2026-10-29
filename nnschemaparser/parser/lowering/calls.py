@@ -49,8 +49,7 @@ class CallLowering(LoweringContext):
         """
 
         # The kwargs unpacking must be a plain variable name, the starred
-        # arguments are handled by the args and args_var of the instructions
-        args_var: str | None = self._args_var(call=call)
+        # arguments are handled inside the lowering of the call arguments
         kwargs_var: str | None = self._kwargs_var(call=call)
 
         # A call to a direct sub-block of the module
@@ -101,44 +100,6 @@ class CallLowering(LoweringContext):
             out_var=out_var,
             kwargs_var=kwargs_var
         )
-
-    def _args_var(self, call: ast.Call) -> str | None:
-        """
-        Get the name of the variable unpacked as the positional arguments.
-
-        Args:
-            call (ast.Call): The call expression of the unpacking.
-
-        Returns:
-            str | None: The name of the unpacked variable, or None.
-
-        Raises:
-            UnsupportedSyntaxError: When the starred arguments are not plain
-                variable names or a positional argument follows the unpacking.
-        """
-
-        # The starred arguments must be plain variable names and no
-        # positional argument may follow them
-        args_var: str | None = None
-        arg: ast.expr
-        for arg in call.args:
-            if isinstance(arg, ast.Starred):
-                if not isinstance(arg.value, ast.Name):
-                    raise UnsupportedSyntaxError(
-                        "Unsupported *args unpacking expression", arg
-                    )
-                if args_var is not None:
-                    raise UnsupportedSyntaxError(
-                        "Several starred arguments are not supported", arg
-                    )
-                args_var = arg.value.id
-            elif args_var is not None:
-                raise UnsupportedSyntaxError(
-                    "A positional argument follows a starred argument", arg
-                )
-
-        # Return the name of the unpacked variable, if any
-        return args_var
 
     def _kwargs_var(self, call: ast.Call) -> str | None:
         """

@@ -213,3 +213,17 @@ def join_str(*parts: Any) -> str:
     return "".join(
         part if isinstance(part, str) else str(part) for part in parts
     )
+
+
+def setitem(obj: Any, key: Any, value: Any) -> None:
+    """
+    Set the item of an object, the lowering of a subscript assignment.
+
+    Args:
+        obj (Any): The object whose item is set.
+        key (Any): The index or the slice key of the item.
+        value (Any): The value assigned to the item.
+    """
+
+    # Set the item on the object
+    obj[key] = value

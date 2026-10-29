@@ -597,6 +597,16 @@ class ExpressionLowering(LoweringContext):
             VarRef | Any: A variable reference to the constructed sequence.
         """
 
+        # A sequence with starred elements is built by concatenation
+        starred: list[tuple[bool, ast.expr]] = [
+            (isinstance(element, ast.Starred), element)
+            for element in expr.elts
+        ]
+        if any(is_starred for is_starred, _ in starred):
+            return self._lower_starred_sequence(
+                expr=expr, starred=starred, body=body
+            )
+
         # Lower all the elements of the sequence
         elements: list[VarRef | Any] = []
         element: ast.expr
@@ -617,6 +627,95 @@ class ExpressionLowering(LoweringContext):
 
         # Return the reference to the constructed sequence
         return VarRef(name=out_var)
+
+    def _lower_starred_sequence(
+        self,
+        expr: ast.Tuple | ast.List,
+        starred: list[tuple[bool, ast.expr]],
+        body: list[Instruction]
+    ) -> VarRef | Any:
+        """
+        Lower a tuple or list display containing starred elements.
+
+        Each part is lowered to a tuple variable, the starred parts as the
+        tuple of their iterable and the plain parts as a single-element
+        tuple, then all the parts are concatenated in the original order.
+        A list display is built by converting the concatenated tuple.
+
+        Args:
+            expr (ast.Tuple | ast.List): The sequence display expression.
+            starred (list[tuple[bool, ast.expr]]): The elements with a flag
+                telling whether each one is a starred unpacking.
+            body (list[Instruction]): The body to append instructions to.
+
+        Returns:
+            VarRef | Any: A variable reference to the constructed sequence.
+        """
+
+        # Lower each part of the sequence to a tuple variable
+        part_vars: list[str] = []
+        is_starred: bool
+        element: ast.expr
+        for is_starred, element in starred:
+            part_var: str = self._new_temp()
+            if is_starred:
+                value: VarRef | Any = self._lower_expr(
+                    expr=element.value, body=body
+                )
+                self._emit_op(
+                    target=tuple,
+                    qualified_name="tuple",
+                    args=[value],
+                    kwargs={},
+                    out_var=part_var,
+                    body=body
+                )
+            else:
+                result: VarRef | Any = self._lower_expr(
+                    expr=element, body=body
+                )
+                self._emit_op(
+                    target=make_tuple,
+                    qualified_name="tuple",
+                    args=[result],
+                    kwargs={},
+                    out_var=part_var,
+                    body=body
+                )
+            part_vars.append(part_var)
+
+        # Concatenate the parts in the order of the display
+        acc_var: str = part_vars[0]
+        part_var: str
+        for part_var in part_vars[1:]:
+            next_var: str = self._new_temp()
+            self._emit_op(
+                target=operator.add,
+                qualified_name="add",
+                args=[VarRef(name=acc_var), VarRef(name=part_var)],
+                kwargs={},
+                out_var=next_var,
+                body=body
+            )
+            acc_var = next_var
+
+        # A tuple display returns the concatenated tuple directly
+        if isinstance(expr, ast.Tuple):
+            return VarRef(name=acc_var)
+
+        # A list display converts the concatenated tuple to a list
+        list_var: str = self._new_temp()
+        self._emit_op(
+            target=list,
+            qualified_name="list",
+            args=[VarRef(name=acc_var)],
+            kwargs={},
+            out_var=list_var,
+            body=body
+        )
+
+        # Return the reference to the built list
+        return VarRef(name=list_var)
 
     def _lower_ifexp(self, expr: ast.IfExp, body: list[Instruction]) -> VarRef | Any:
         """

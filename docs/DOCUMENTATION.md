@@ -321,7 +321,9 @@ The lowering covers the Python actually written in `forward` methods:
 | Calls to `nn.ModuleDict` entries (runtime dispatch) | ✅ |
 | `try` / `except Type as name` / `finally` | ✅ |
 | List / set / dict comprehensions and generator expressions | ✅ |
-| `*args` / `**kwargs` in signatures and at call sites | ✅ |
+| `*args` / `**kwargs` in signatures and at call sites (any arg order) | ✅ |
+| Starred sequence displays (`(*shape, -1, 8)`, `[*a, b]`) | ✅ built by tuple concatenation |
+| Subscript assignments (`cache[key] = value`) | ✅ lowered to a `setitem` op |
 | Multiple / tuple return values | ✅ |
 | `self.weight`, buffers, plain attributes, config objects | ✅ |
 | `super()` inside a forward body (zero-arg and explicit) | ✅ lowered to a `super` op with the class resolved statically |

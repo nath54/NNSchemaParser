@@ -70,3 +70,35 @@ check("while", WhileModel(), torch.randn(4, 4))
 check("chain", ChainModel(), torch.randn(3, 3))
 check("super", SuperModel(), torch.randn(2, 2))
 print("ALL OK")
+
+
+class StarredModel(nn.Module):
+    """Uses starred displays and mixed starred call arguments."""
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        shape = x.shape[:2]
+        hidden = (*shape, -1, 8)
+        y = x.reshape(*shape, -1)
+        z = x.reshape(*shape, -1, 8).sum(dim=(2, 3))
+        w = [*shape, 3]
+        return y + z.sum() * 0 + x.reshape(hidden).sum() * 0 + sum(w) * 0
+
+
+check("starred", StarredModel(), torch.randn(2, 3, 16))
+
+
+class SetitemModel(nn.Module):
+    """Assigns to the items of an object (setitem lowering)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.cache: dict[str, torch.Tensor] = {}
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        self.cache["x"] = x
+        y = self.cache["x"] * 2
+        self.cache["y"] = y
+        return self.cache["y"] + 1
+
+
+check("setitem", SetitemModel(), torch.randn(3, 4))

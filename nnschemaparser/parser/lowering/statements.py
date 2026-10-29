@@ -20,7 +20,8 @@ from nnschemaparser.parser.lowering.runtime_ops import (
     check,
     identity,
     raise_exception,
-    raise_exception_instance
+    raise_exception_instance,
+    setitem
 )
 
 
@@ -210,6 +211,11 @@ class StatementLowering(LoweringContext):
             self._lower_tuple_assign(stmt=stmt, target=target, body=body)
             return
 
+        # A subscript target is lowered to a setitem operation
+        if isinstance(target, ast.Subscript):
+            self._lower_subscript_assign(stmt=stmt, target=target, body=body)
+            return
+
         # A tuple target containing a starred element is not supported
         if isinstance(target, ast.Tuple):
             raise UnsupportedSyntaxError(
@@ -381,9 +387,63 @@ class StatementLowering(LoweringContext):
             )
             return
 
+        # A subscript target is bound with a setitem operation
+        if isinstance(target, ast.Subscript):
+            obj: VarRef | Any = self._lower_expr(expr=target.value, body=body)
+            index: VarRef | Any = self._lower_index(
+                index=target.slice, body=body
+            )
+            self._emit_op(
+                target=setitem,
+                qualified_name="setitem",
+                args=[obj, index, VarRef(name=value_var)],
+                kwargs={},
+                out_var=self._new_temp(),
+                body=body
+            )
+            return
+
         # Any other target is not supported
         raise UnsupportedSyntaxError(
             "Only name, tuple and attribute targets are supported", stmt
+        )
+
+    def _lower_subscript_assign(
+        self,
+        stmt: ast.Assign,
+        target: ast.Subscript,
+        body: list[Instruction]
+    ) -> None:
+        """
+        Lower an assignment to an item of an object as a setitem.
+
+        Args:
+            stmt (ast.Assign): The assignment statement to lower.
+            target (ast.Subscript): The subscript assignment target.
+            body (list[Instruction]): The body to append the instructions to.
+        """
+
+        # Lower the object owning the assigned item
+        obj: VarRef | Any = self._lower_expr(expr=target.value, body=body)
+
+        # Lower the index of the assigned item, slices included
+        index: VarRef | Any = self._lower_index(
+            index=target.slice, body=body
+        )
+
+        # Lower the assigned value into a temporary variable
+        value_var: str = self._lower_value_to_var(
+            value=stmt.value, body=body
+        )
+
+        # Emit the setitem of the index on the object
+        self._emit_op(
+            target=setitem,
+            qualified_name="setitem",
+            args=[obj, index, VarRef(name=value_var)],
+            kwargs={},
+            out_var=self._new_temp(),
+            body=body
         )
 
     def _lower_tuple_assign(

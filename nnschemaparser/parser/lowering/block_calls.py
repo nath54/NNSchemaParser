@@ -9,12 +9,13 @@ calls, the indexed container entry calls and the chained container calls.
 from typing import Any
 
 import ast
+import operator
 
 from nnschemaparser.core.instructions import BlockInstruction, BlockRef, Instruction, VarRef
 from nnschemaparser.parser.lowering.base import LoweringContext
 from nnschemaparser.core.container_keys import container_entry_keys
 from nnschemaparser.parser.lowering.errors import UnsupportedSyntaxError
-from nnschemaparser.parser.lowering.runtime_ops import identity
+from nnschemaparser.parser.lowering.runtime_ops import identity, make_tuple
 
 
 class BlockCallLowering(LoweringContext):
@@ -237,28 +238,21 @@ class BlockCallLowering(LoweringContext):
                 the name of the unpacked positional tuple, if any.
         """
 
-        # Lower all the positional arguments of the call, keeping the
-        # starred unpacking variables apart
+        # Lower all the positional arguments of the call, building a single
+        # positional tuple at run time when a starred unpacking is present
         args: list[VarRef | Any] = []
         args_var: str | None = None
-        arg: ast.expr
-        for arg in call.args:
-            if isinstance(arg, ast.Starred):
-                if not isinstance(arg.value, ast.Name):
-                    raise UnsupportedSyntaxError(
-                        "Unsupported *args unpacking expression", arg
-                    )
-                if args_var is not None:
-                    raise UnsupportedSyntaxError(
-                        "Several starred arguments are not supported", arg
-                    )
-                args_var = arg.value.id
-                continue
-            if args_var is not None:
-                raise UnsupportedSyntaxError(
-                    "A positional argument follows a starred argument", arg
-                )
-            args.append(self._lower_expr(expr=arg, body=body))
+        starred: list[tuple[bool, ast.expr]] = [
+            (isinstance(arg, ast.Starred), arg) for arg in call.args
+        ]
+        if any(is_starred for is_starred, _ in starred):
+            args_var = self._lower_starred_args(
+                starred=starred, body=body
+            )
+        else:
+            arg: ast.expr
+            for arg in call.args:
+                args.append(self._lower_expr(expr=arg, body=body))
 
         # Lower all the keyword arguments of the call
         kwargs: dict[str, VarRef | Any] = {}
@@ -278,3 +272,79 @@ class BlockCallLowering(LoweringContext):
 
         # Return the lowered arguments of the call
         return args, kwargs, kwargs_var, args_var
+
+    def _lower_starred_args(
+        self,
+        starred: list[tuple[bool, ast.expr]],
+        body: list[Instruction]
+    ) -> str:
+        """
+        Lower call arguments containing starred unpackings to a tuple.
+
+        Each part of the call is lowered to a tuple variable, the starred
+        parts as the tuple of their iterable and the plain parts as a
+        single-element tuple, then all the parts are concatenated in the
+        original order of the call, reproducing the python unpacking.
+
+        Args:
+            starred (list[tuple[bool, ast.expr]]: The call arguments with a
+                flag telling whether each one is a starred unpacking.
+            body (list[Instruction]): The body to append instructions to.
+
+        Returns:
+            str: The name of the variable holding the positional tuple.
+        """
+
+        # A single starred plain name is used as the unpacked tuple directly
+        if len(starred) == 1 and starred[0][0] and isinstance(
+            starred[0][1], ast.Starred
+        ) and isinstance(starred[0][1].value, ast.Name):
+            return starred[0][1].value.id
+
+        # Lower each part of the call to a tuple variable
+        part_vars: list[str] = []
+        is_starred: bool
+        arg: ast.expr
+        for is_starred, arg in starred:
+            part_var: str = self._new_temp()
+            if is_starred:
+                value: VarRef | Any = self._lower_expr(
+                    expr=arg.value, body=body
+                )
+                self._emit_op(
+                    target=tuple,
+                    qualified_name="tuple",
+                    args=[value],
+                    kwargs={},
+                    out_var=part_var,
+                    body=body
+                )
+            else:
+                result: VarRef | Any = self._lower_expr(expr=arg, body=body)
+                self._emit_op(
+                    target=make_tuple,
+                    qualified_name="tuple",
+                    args=[result],
+                    kwargs={},
+                    out_var=part_var,
+                    body=body
+                )
+            part_vars.append(part_var)
+
+        # Concatenate the parts in the order of the call
+        acc_var: str = part_vars[0]
+        part_var: str
+        for part_var in part_vars[1:]:
+            next_var: str = self._new_temp()
+            self._emit_op(
+                target=operator.add,
+                qualified_name="add",
+                args=[VarRef(name=acc_var), VarRef(name=part_var)],
+                kwargs={},
+                out_var=next_var,
+                body=body
+            )
+            acc_var = next_var
+
+        # Return the name of the complete positional tuple
+        return acc_var
