@@ -443,6 +443,7 @@ class NNParser:
 
         # Collect the inputs of the model from the forward signature
         model_inputs: dict[str, TensorRepr] = {}
+        input_defaults: dict[str, Any] = {}
         parameter_name: str
         for parameter_name in signature.parameters:
 
@@ -480,6 +481,13 @@ class NNParser:
                 dtype=""
             )
 
+            # The optional parameters keep their default value
+            parameter_default: Any = (
+                signature.parameters[parameter_name].default
+            )
+            if parameter_default is not inspect.Parameter.empty:
+                input_defaults[parameter_name] = parameter_default
+
         # Collect the outputs of the model from the lowered return instruction
         model_outputs: list[TensorRepr] = [
             TensorRepr(shape=(), dtype="") for _ in output_vars
@@ -493,7 +501,8 @@ class NNParser:
             sub_blocks=model_sub_blocks,
             body=body,
             module=model,
-            methods=methods
+            methods=methods,
+            input_defaults=input_defaults
         )
 
     @staticmethod

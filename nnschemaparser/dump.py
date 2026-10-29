@@ -8,6 +8,7 @@ the instruction body of every block, with the resolved shapes of every step.
 
 # Import Modules
 from typing import Any, Iterator
+import functools
 
 import types
 
@@ -127,6 +128,11 @@ def describe_value(value: Any) -> str:
     if isinstance(value, (types.MethodType, types.FunctionType,
                           types.BuiltinMethodType)):
         return f"method '{value.__name__}'"
+
+    # The partial functions are described by their wrapped callable, without
+    # the memory address of the default object repr
+    if isinstance(value, functools.partial):
+        return f"partial({describe_value(value=value.func)})"
 
     # The iterators are described by their type only, without the memory
     # address of the default object repr
@@ -370,15 +376,20 @@ def dump_block(
     header: str = title if title is not None else f"BLOCK {module_type}"
     lines.append(f"{indent}=== {header} ===")
 
-    # The declared inputs of the block
+    # The declared inputs of the block, with the recorded default values
+    default_values: dict[str, Any] = block.input_defaults or {}
+    input_entries: list[str] = []
+    input_name: str
+    for input_name, input_repr in block.inputs.items():
+        input_text: str = f"{input_name} = {format_input(repr_=input_repr)}"
+        if input_repr.dtype == PLACEHOLDER_DTYPE and input_name in default_values:
+            input_text += f" (default={default_values[input_name]!r})"
+        input_entries.append(input_text)
     _dump_section(
         lines=lines,
         indent=indent,
         title="inputs",
-        entries=[
-            f"{name} = {format_input(repr_)}"
-            for name, repr_ in block.inputs.items()
-        ]
+        entries=input_entries
     )
 
     # The declared outputs of the block

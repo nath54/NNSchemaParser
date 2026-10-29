@@ -30,7 +30,8 @@ class ModelBlockSchema:
         body: list[Instruction],
         module: Any | None = None,
         methods: dict[str, "ModelBlockSchema"] | None = None,
-        method_name: str | None = None
+        method_name: str | None = None,
+        input_defaults: dict[str, Any] | None = None
     ) -> None:
         """
         Init function.
@@ -52,6 +53,8 @@ class ModelBlockSchema:
                                             as block schemas (e.g. get_image_features).
             method_name (str | None): The name of the parsed method when the block
                                             describes a method instead of the forward.
+            input_defaults (dict[str, Any] | None): The default values of the
+                                            optional inputs, by parameter name.
         """
 
         # Store here the model input(s) representation(s)
@@ -74,6 +77,9 @@ class ModelBlockSchema:
 
         # Store here the other methods of the module called by the body
         self.methods: dict[str, ModelBlockSchema] = methods or {}
+
+        # Store here the default values of the optional inputs
+        self.input_defaults: dict[str, Any] = input_defaults or {}
 
         # Store here the name of the described method, if not the forward
         self.method_name: str | None = method_name
