@@ -76,7 +76,7 @@ For each module (`children.py`, `container_keys.py`):
   `self.activation = F.gelu`, config values, …) are captured as constants of
   the block scope.
 
-A child whose forward cannot be lowered (e.g. it calls `super()`) is **skipped
+A child whose forward cannot be lowered is **skipped
 from the tree** instead of aborting the whole parse: the parser records the
 skip, and the interpreter transparently re-dispatches calls to that child to
 its **real module** at execution time. The graph stays runnable and the values
@@ -322,8 +322,9 @@ The lowering covers the Python actually written in `forward` methods:
 | `*args` / `**kwargs` in signatures and at call sites | ✅ |
 | Multiple / tuple return values | ✅ |
 | `self.weight`, buffers, plain attributes, config objects | ✅ |
-| `super()` inside a forward body | ⚠️ child skipped, re-dispatched to the real module |
-| `while` loops | ❌ `UnsupportedSyntaxError` |
+| `super()` inside a forward body (zero-arg and explicit) | ✅ lowered to a `super` op with the class resolved statically |
+| `while` loops | ✅ condition re-evaluated at each iteration |
+| Chained assignments (`a = b = expr`) | ✅ value lowered once, bound to each target |
 | `for` / `while` `else` clauses | ❌ |
 | Calls to unknown globals (e.g. building an output dataclass) | ⚠️ child skipped / ❌ at root level |
 | `self[index](...)` indexed self-calls | ❌ (not yet) |
