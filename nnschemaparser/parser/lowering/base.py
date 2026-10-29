@@ -72,6 +72,10 @@ class LoweringContext:
         # The attributes of self stored by the lowered method body
         self._stored_self_attrs: set[str] = set()
 
+        # The module and the function name of the currently lowered method
+        self._model: nn.Module | None = None
+        self._function_name: str | None = None
+
         # Counter used to generate the temporary variable names
         self._temp_counter: int = 0
 
@@ -158,6 +162,10 @@ class LoweringContext:
 
         # Keep the parameter names of the method for the name roots
         self._param_names = {arg.arg for arg in function_def.args.args}
+
+        # Keep the module and the function name for the super() resolutions
+        self._model = model
+        self._function_name = function_name
 
         # Keep the name of the var-keyword parameter of the method, if any
         self._kwarg_name = (

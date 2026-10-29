@@ -313,12 +313,12 @@ class CallLowering(LoweringContext):
             call=call, body=body
         )
 
-        # A super call cannot be re-executed outside the original function
-        # (the __class__ cell is missing), so the block is not parsable
+        # A super call is lowered with its arguments resolved statically
         if isinstance(call.func, ast.Name) and call.func.id == "super":
-            raise UnsupportedSyntaxError(
-                "super() calls are not supported in a forward body", call
+            self._lower_super_call(
+                call=call, body=body, out_var=out_var, kwargs_var=kwargs_var
             )
+            return out_var
 
         # A call to a local callable variable (e.g. a loss function instance)
         if isinstance(call.func, ast.Name) and (
@@ -530,3 +530,129 @@ class CallLowering(LoweringContext):
 
         # Return the output variable name of the call
         return out_var
+
+    def _lower_super_call(
+        self,
+        call: ast.Call,
+        body: list[Instruction],
+        out_var: str,
+        kwargs_var: str | None
+    ) -> None:
+        """
+        Lower a super() call to a super operation.
+
+        The zero-argument form is rewritten with the class where the lowered
+        method is defined, so the call is re-executable outside of the
+        original function frame.
+
+        Args:
+            call (ast.Call): The super call expression to lower.
+            body (list[Instruction]): The body to append the instructions to.
+            out_var (str): The name of the variable the result is bound to.
+            kwargs_var (str | None): The name of the unpacked keyword
+                arguments, unsupported for a super call.
+
+        Raises:
+            UnsupportedSyntaxError: When the class argument of the super call
+                cannot be resolved statically.
+        """
+
+        # The keyword arguments are not supported in a super call
+        if kwargs_var is not None:
+            raise UnsupportedSyntaxError(
+                "Keyword arguments are not supported in a super() call", call
+            )
+
+        # The explicit two-argument form keeps its own arguments
+        if len(call.args) == 2:
+            class_value: Any = self._resolve_super_class(
+                arg=call.args[0], node=call
+            )
+            obj: VarRef | Any = self._lower_expr(expr=call.args[1], body=body)
+
+        # The zero-argument form uses the class defining the lowered method
+        else:
+            class_value = self._defining_class(node=call)
+            obj = VarRef(name="$self")
+
+        # Emit the super operation with the resolved arguments
+        self._emit_op(
+            target=super,
+            qualified_name="super",
+            args=[class_value, obj],
+            kwargs={},
+            out_var=out_var,
+            body=body
+        )
+
+    def _resolve_super_class(
+        self,
+        arg: ast.expr,
+        node: ast.AST
+    ) -> type:
+        """
+        Resolve the class argument of an explicit super call.
+
+        Args:
+            arg (ast.expr): The class argument of the super call.
+            node (ast.AST): The super call node, for error reporting.
+
+        Returns:
+            type: The resolved class object.
+
+        Raises:
+            UnsupportedSyntaxError: When the argument is not a name resolvable
+                to a class from the globals of the lowered method.
+        """
+
+        # A plain name is resolved from the globals of the lowered method
+        if isinstance(arg, ast.Name) and isinstance(
+            self.forward_globals.get(arg.id), type
+        ):
+            resolved: Any = self.forward_globals[arg.id]
+            return resolved
+
+        # Any other argument cannot be resolved statically
+        raise UnsupportedSyntaxError(
+            "The class argument of super() must be a resolvable class name",
+            node
+        )
+
+    def _defining_class(self, node: ast.AST) -> type:
+        """
+        Get the class where the currently lowered method is defined.
+
+        Args:
+            node (ast.AST): The super call node, for error reporting.
+
+        Returns:
+            type: The class of the method resolution order defining the
+                lowered method.
+
+        Raises:
+            UnsupportedSyntaxError: When no lowered method context is
+                available or the defining class cannot be found.
+        """
+
+        # The lowered method context must be available
+        if self._model is None or self._function_name is None:
+            raise UnsupportedSyntaxError(
+                "No lowered method context for the zero-argument super()",
+                node
+            )
+
+        # Search the method resolution order for the defining class
+        model_type: type = type(self._model)
+        function: Any = getattr(model_type, self._function_name)
+        cls: type
+        for cls in model_type.__mro__:
+            if (
+                self._function_name in cls.__dict__
+                and cls.__dict__[self._function_name] is function
+            ):
+                return cls
+
+        # The defining class was not found in the resolution order
+        raise UnsupportedSyntaxError(
+            "The class defining the lowered method was not found", node
+        )

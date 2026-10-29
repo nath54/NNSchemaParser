@@ -130,9 +130,6 @@ class ShapeResolver:
         # Seed the neutral values of the scalar inputs without a value
         seed_scalar_inputs(block=block, scope=scope)
 
-        # Seed the neutral values of the scalar inputs without a value
-        seed_scalar_inputs(block=block, scope=scope)
-
         # Execute the schema with the real input tensors
         with torch.no_grad():
             interpreter: SchemaInterpreter = SchemaInterpreter(

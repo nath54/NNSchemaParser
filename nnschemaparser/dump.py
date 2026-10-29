@@ -134,6 +134,11 @@ def describe_value(value: Any) -> str:
     if isinstance(value, functools.partial):
         return f"partial({describe_value(value=value.func)})"
 
+    # The super proxies are described by their class, without the memory
+    # address of the default object repr
+    if isinstance(value, super):
+        return f"super({value.__thisclass__.__name__})"
+
     # The iterators are described by their type only, without the memory
     # address of the default object repr
     if isinstance(value, Iterator):
@@ -261,6 +266,8 @@ def instruction_line(instruction: Instruction) -> str:
                     f"{instruction.iter_container.path}"
                 )
             return f"for {instruction.bind_var} in <expression>"
+        if instruction.kind == "while":
+            return "while"
         return "if"
 
     # The try statement

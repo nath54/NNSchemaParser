@@ -287,9 +287,11 @@ class TraceRecorder(TraceListener):
             instruction (ControlInstruction): The control flow instruction.
         """
 
-        # The if marker or the for header, then the indent of the body
+        # The if or while markers, or the for header, then the indent
         if instruction.kind == "if":
             self._log("IF")
+        elif instruction.kind == "while":
+            self._log("WHILE")
         else:
             self._log(
                 f"FOR {instruction.bind_var} IN "

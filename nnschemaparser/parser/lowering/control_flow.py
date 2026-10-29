@@ -84,6 +84,38 @@ class ControlFlowLowering(LoweringContext):
         # Else a regular loop over an iterable expression
         self._lower_iterable_loop(stmt=stmt, body=body)
 
+    def _lower_while(self, stmt: ast.While, body: list[Instruction]) -> None:
+        """
+        Lower a while loop statement to a control instruction.
+
+        Args:
+            stmt (ast.While): The while loop statement to lower.
+            body (list[Instruction]): The body to append the instruction to.
+        """
+
+        # The while-else syntax is not supported
+        if stmt.orelse:
+            raise UnsupportedSyntaxError(
+                "The while-else syntax is not supported", stmt
+            )
+
+        # Lower the condition of the loop, re-evaluated at each iteration
+        condition: OpInstruction = self._lower_condition(
+            test=stmt.test, body=body
+        )
+
+        # Lower the body of the loop
+        loop_body: list[Instruction] = self._lower_body(stmt.body)
+
+        # Append the control instruction of the while loop
+        body.append(ControlInstruction(
+            kind="while",
+            condition=condition,
+            body=loop_body,
+            else_body=[],
+            bind_var=None
+        ))
+
     def _lower_self_loop(
         self,
         stmt: ast.For,

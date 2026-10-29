@@ -18,6 +18,7 @@ from nnschemaparser.parser.lowering.naming import dotted_name, resolve_dotted_na
 from nnschemaparser.parser.lowering.runtime_ops import (
     BINARY_OPERATORS,
     check,
+    identity,
     raise_exception,
     raise_exception_instance
 )
@@ -79,6 +80,9 @@ class StatementLowering(LoweringContext):
             return
         if isinstance(stmt, ast.For):
             self._lower_for(stmt=stmt, body=body)
+            return
+        if isinstance(stmt, ast.While):
+            self._lower_while(stmt=stmt, body=body)
             return
         if isinstance(stmt, ast.Try):
             self._lower_try(stmt=stmt, body=body)
@@ -167,11 +171,11 @@ class StatementLowering(LoweringContext):
             body (list[Instruction]): The body to append the instructions to.
         """
 
-        # Multiple assignment targets are not supported
+        # Multiple assignment targets share one lowered value
         if len(stmt.targets) != 1:
-            raise UnsupportedSyntaxError(
-                "Only single assignment targets are supported", stmt
-            )
+            self._lower_chained_assign(stmt=stmt, body=body)
+            return
+
 
         # A single name target is lowered directly
         target: ast.expr = stmt.targets[0]
@@ -205,6 +209,12 @@ class StatementLowering(LoweringContext):
         ):
             self._lower_tuple_assign(stmt=stmt, target=target, body=body)
             return
+
+        # A tuple target containing a starred element is not supported
+        if isinstance(target, ast.Tuple):
+            raise UnsupportedSyntaxError(
+                "Only name targets are supported in tuple assignments", stmt
+            )
 
         # Any other assignment target is not supported
         raise UnsupportedSyntaxError(
@@ -273,6 +283,109 @@ class StatementLowering(LoweringContext):
             body=body
         )
 
+    def _lower_chained_assign(
+        self,
+        stmt: ast.Assign,
+        body: list[Instruction]
+    ) -> None:
+        """
+        Lower a chained assignment (e.g. a = b = value) to instructions.
+
+        The assigned value is lowered once into a temporary variable, then
+        bound to each target of the chain.
+
+        Args:
+            stmt (ast.Assign): The chained assignment statement to lower.
+            body (list[Instruction]): The body to append the instructions to.
+        """
+
+        # Lower the assigned value once into a temporary variable
+        temp_var: str = self._new_temp()
+        self._lower_assign_value(
+            value=stmt.value,
+            out_var=temp_var,
+            body=body
+        )
+
+        # Bind the temporary value to each target of the chain
+        target: ast.expr
+        for target in stmt.targets:
+            self._bind_single_target(
+                target=target,
+                value_var=temp_var,
+                stmt=stmt,
+                body=body
+            )
+
+    def _bind_single_target(
+        self,
+        target: ast.expr,
+        value_var: str,
+        stmt: ast.Assign,
+        body: list[Instruction]
+    ) -> None:
+        """
+        Bind an already lowered value to one assignment target.
+
+        Args:
+            target (ast.expr): The assignment target, a name, a tuple of
+                names or an attribute.
+            value_var (str): The name of the variable holding the value.
+            stmt (ast.Assign): The assignment statement, for error reporting.
+            body (list[Instruction]): The body to append instructions to.
+        """
+
+        # A name target is bound with an identity operation
+        if isinstance(target, ast.Name):
+            self._emit_op(
+                target=identity,
+                qualified_name="identity",
+                args=[VarRef(name=value_var)],
+                kwargs={},
+                out_var=target.id,
+                body=body
+            )
+            return
+
+        # A tuple of name targets is unpacked element by element
+        if (
+            isinstance(target, ast.Tuple)
+            and all(isinstance(elt, ast.Name) for elt in target.elts)
+        ):
+            element_index: int
+            element: ast.expr
+            for element_index, element in enumerate(target.elts):
+                self._emit_op(
+                    target=operator.getitem,
+                    qualified_name="getitem",
+                    args=[VarRef(name=value_var), element_index],
+                    kwargs={},
+                    out_var=element.id,
+                    body=body
+                )
+            return
+
+        # An attribute of self is bound with a setattr operation
+        if (
+            isinstance(target, ast.Attribute)
+            and isinstance(target.value, ast.Name)
+            and target.value.id == "self"
+        ):
+            self._emit_op(
+                target=setattr,
+                qualified_name="setattr",
+                args=[VarRef(name="$self"), target.attr, VarRef(name=value_var)],
+                kwargs={},
+                out_var=self._new_temp(),
+                body=body
+            )
+            return
+
+        # Any other target is not supported
+        raise UnsupportedSyntaxError(
+            "Only name, tuple and attribute targets are supported", stmt
+        )
+
     def _lower_tuple_assign(
         self,
         stmt: ast.Assign,
@@ -297,17 +410,12 @@ class StatementLowering(LoweringContext):
             self._bind_result(result=result, out_var=temp_var, body=body)
 
         # Unpack the temporary value element by element
-        element_index: int
-        element: ast.expr
-        for element_index, element in enumerate(target.elts):
-            self._emit_op(
-                target=operator.getitem,
-                qualified_name="getitem",
-                args=[VarRef(name=temp_var), element_index],
-                kwargs={},
-                out_var=element.id,
-                body=body
-            )
+        self._bind_single_target(
+            target=target,
+            value_var=temp_var,
+            stmt=stmt,
+            body=body
+        )
 
     def _lower_assign_value(
         self,

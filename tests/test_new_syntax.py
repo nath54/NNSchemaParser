@@ -1,0 +1,72 @@
+"""Test while loops, chained assignments, tuple unpacking and super()."""
+
+# Import Modules
+import sys
+
+sys.path.insert(0, r"C:/Users/Cerisara Nathan/Documents/GitHub/NNViewer")
+
+import torch  # noqa: I001
+from torch import nn  # noqa: I001
+
+from nnschemaparser import SchemaInterpreter  # noqa: E402
+from nnschemaparser.parser import NNParser  # noqa: E402
+
+
+class WhileModel(nn.Module):
+    """Unrolls n iterations of a residual addition with a while loop."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.n = 3
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        i = 0
+        while i < self.n:
+            x = x + 0.1
+            i = i + 1
+        return x
+
+
+class ChainModel(nn.Module):
+    """Uses chained assignment and tuple slice unpacking."""
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        a = b = x * 2
+        c, d = (y + 1 for y in (a, b))
+        e, f, g = (a, b, c)[:3]
+        return e + f + g + d
+
+
+class ParentLayer(nn.Module):
+    """Parent layer with a forward used through super()."""
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x * 3
+
+
+class SuperModel(ParentLayer):
+    """Delegates to the parent forward through an explicit super."""
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return super().forward(x) + 1
+
+
+def check(name: str, model: nn.Module, x: torch.Tensor) -> None:
+    schema = NNParser.parse_model(
+        model=model,
+        inputs_tensors_shapes={"x": tuple(x.shape)},
+        inputs_tensors_dtypes={"x": "torch.float32"},
+        inputs_tensors_values={"x": x}
+    )
+    interpreter = SchemaInterpreter()
+    ours = interpreter.run(block=schema, scope={"x": x})
+    expected = model(x)
+    ok = torch.allclose(ours[0], expected)
+    print(f"{name}: match={ok}")
+    assert ok, name
+
+
+check("while", WhileModel(), torch.randn(4, 4))
+check("chain", ChainModel(), torch.randn(3, 3))
+check("super", SuperModel(), torch.randn(2, 2))
+print("ALL OK")

@@ -269,8 +269,8 @@ class ControlInstruction(Instruction):
         # Init parent
         super().__init__(out_var=out_var)
 
-        # Only the if and for kinds are supported
-        if kind not in ("if", "for"):
+        # Only the if, for and while kinds are supported
+        if kind not in ("if", "for", "while"):
             raise ValueError(f"Unsupported control flow kind: {kind}")
 
         # Store here the kind of control flow

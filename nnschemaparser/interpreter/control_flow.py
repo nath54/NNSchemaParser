@@ -64,6 +64,14 @@ class ControlFlowExecutor:
                 scope=scope
             )
 
+        # A while loop re-evaluates its condition before each iteration
+        elif instruction.kind == "while":
+            result = self._execute_while(
+                instruction=instruction,
+                block=block,
+                scope=scope
+            )
+
         # Any other control flow kind is an error of the schema
         else:
             raise ValueError(f"Unsupported control flow kind: {instruction.kind}")
@@ -245,6 +253,53 @@ class ControlFlowExecutor:
 
             # Execute the body of the loop for the current iteration and
             # propagate a return instruction reached in the body
+            result: list[Any] | None = self._run_body(
+                body=instruction.body,
+                block=block,
+                scope=scope
+            )
+            if result is not None:
+                return result
+
+        # No return instruction was reached in the loop body
+        return None
+
+    def _execute_while(
+        self,
+        instruction: ControlInstruction,
+        block: ModelBlockSchema,
+        scope: dict[str, Any]
+    ) -> list[Any] | None:
+        """
+        Execute a while loop, re-evaluating its condition each iteration.
+
+        Args:
+            instruction (ControlInstruction): The while instruction to execute.
+            block (ModelBlockSchema): The block schema owning the instruction.
+            scope (dict[str, Any]): The current variables of the block.
+
+        Returns:
+            list[Any] | None: The outputs of a return instruction reached in
+                the loop body, else None.
+        """
+
+        # The condition of the loop must be defined
+        if instruction.condition is None:
+            raise ValueError("A while loop instruction must define a condition.")
+
+        # Iterate while the re-evaluated condition stays true
+        while True:
+
+            # Re-evaluate the condition of the loop
+            self._execute_op(
+                instruction=instruction.condition,
+                block=block,
+                scope=scope
+            )
+            if not scope[instruction.condition.out_var]:
+                break
+
+            # Execute the body of the loop and propagate a reached return
             result: list[Any] | None = self._run_body(
                 body=instruction.body,
                 block=block,
