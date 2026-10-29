@@ -95,7 +95,7 @@ def describe_value(value: Any) -> str:
     # Sequences are described item by item, briefly
     if isinstance(value, (tuple, list)):
         items: list[str] = [
-            describe_value(item) if isinstance(item, (Tensor, tuple, list))
+            describe_value(item) if isinstance(item, (Tensor, tuple, list, dict))
             else type(item).__name__ for item in value
         ]
         return "(" + ", ".join(items) + ")"

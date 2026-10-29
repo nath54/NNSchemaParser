@@ -30,7 +30,7 @@ nn.Module  ──parse──►  ModelBlockSchema  ──interpret──►  out
 import torch
 from torch import nn
 
-from nnschemaparser import NNParser, SchemaInterpreter
+from nnschemaparser import NNParser, SchemaInterpreter, TraceRecorder, dump_schema
 
 
 class MLP(nn.Module):
@@ -56,32 +56,54 @@ schema = NNParser.parse_model(
     inputs_tensors_values={"x": x},
 )
 
-# 2. Inspect the graph
-for instruction in schema.body:
-    print(instruction.out_var, type(instruction).__name__,
-          instruction.resolved)
+# 2. Dump a readable view of the whole block tree
+dump_schema(schema=schema, path="schema.txt")
 
-# 3. Execute it and compare with the real forward
-outputs = SchemaInterpreter(capture_values=True).run(
+# 3. Execute it with a tracer and compare with the real forward
+tracer = TraceRecorder()
+outputs = SchemaInterpreter(capture_values=True, listeners=[tracer]).run(
     block=schema,
     scope={"x": x.clone()},
 )
+tracer.save("trace.txt")
 reference = model(x)
 assert torch.equal(outputs[0], reference)
 ```
 
-The schema body of `MLP` reads exactly like the source:
+The schema dump of `MLP` reads exactly like the source — original variable
+names, every sub-module, and the resolved shape of every step:
 
 ```
 === BLOCK MLP ===
-inputs: x torch.float32[2, 784]
-weights: fc1.weight torch.float32[256, 784], fc1.bias torch.float32[256], ...
-sub-blocks: fc1(Linear), fc2(Linear)
+inputs:
+  - x = torch.float32[2, 784]
+outputs:
+  - torch.float32[2, 10]
+weights:
+  (none)
+sub-blocks:
+  - fc1(Linear)
+  - fc2(Linear)
 body:
-  hidden = CALL fc1(x)                -> torch.float32[2, 256]
-  activated = F.relu(hidden)          -> torch.float32[2, 256]
-  $t1 = CALL fc2(activated)           -> torch.float32[2, 10]
-  RETURN $t1
+  hidden = CALL fc1(x)  -> torch.float32[2, 256]
+  $t1 = getattr(hidden, 'relu')  -> builtin_function_or_method
+  activated = relu()()  -> torch.float32[2, 256]
+  $t2 = CALL fc2(activated)  -> torch.float32[2, 10]
+  RETURN $t2
+```
+
+The tracer records the same execution chronologically, with the value of
+every intermediate tensor (one line per event, indented by the nesting
+depth) — this is what a WebUI consumes to display every intermediate value:
+
+```
+[00001] ENTER BLOCK MLP
+[00002]   in x = torch.float32[2, 784] abs_sum=1241.4496 min=-3.0303 max=3.3046
+[00003]   ENTER BLOCK Linear
+[00004]     in input = torch.float32[2, 784] abs_sum=1241.4496 min=-3.0303 max=3.3046
+[00005]     $t1 = F.linear(input, weight, bias)  [torch.float32[2, 256] abs_sum=215.3293 ...]
+[00006]   EXIT BLOCK Linear -> (torch.float32[2, 256] abs_sum=215.3293 ...)
+[00007]   hidden = CALL fc1 [Linear]  [torch.float32[2, 256] abs_sum=215.3293 ...]
 ```
 
 ## Installation

@@ -532,6 +532,11 @@ class InstructionExecutor:
                 output_repr.shape = tuple(int(dim) for dim in value.shape)
                 output_repr.dtype = str(value.dtype)
 
+            # The other values (model output containers, tuples, python
+            # scalars) are described by their type name
+            else:
+                output_repr.dtype = type(value).__name__
+
     def _sub_block_defaults(
         self,
         sub_block: ModelBlockSchema,
