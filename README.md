@@ -9,8 +9,8 @@ callables, so the graph runs exactly like the model — and can optionally captu
 the value of every intermediate tensor.
 
 ```
-nn.Module  ──parse──►  ModelBlockSchema  ──interpret──►  outputs / captured values
-  (your code)           (names + graph)                  (identical to model(x))
+   nn.Module  ──parse──►  ModelBlockSchema  ──interpret──►  outputs / captured values
+  (your code)              (names + graph)                   (identical to model(x))
 ```
 
 ## Why not `torch.fx`?
