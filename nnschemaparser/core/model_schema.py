@@ -28,7 +28,9 @@ class ModelBlockSchema:
         weights: dict[str, TensorReprWithValue],
         sub_blocks: dict[str, "ModelBlockSchema"],
         body: list[Instruction],
-        module: Any | None = None
+        module: Any | None = None,
+        methods: dict[str, "ModelBlockSchema"] | None = None,
+        method_name: str | None = None
     ) -> None:
         """
         Init function.
@@ -45,6 +47,11 @@ class ModelBlockSchema:
                                             (the graph that will be shown in the webUI)
             module (Any | None): The source module of the block, used by the
                                             interpreter to resolve dynamic attributes.
+            methods (dict[str, ModelBlockSchema] | None): The other methods of the
+                                            source module called by the body, parsed
+                                            as block schemas (e.g. get_image_features).
+            method_name (str | None): The name of the parsed method when the block
+                                            describes a method instead of the forward.
         """
 
         # Store here the model input(s) representation(s)
@@ -64,3 +71,9 @@ class ModelBlockSchema:
 
         # Store here the source module of the block
         self.module: Any | None = module
+
+        # Store here the other methods of the module called by the body
+        self.methods: dict[str, ModelBlockSchema] = methods or {}
+
+        # Store here the name of the described method, if not the forward
+        self.method_name: str | None = method_name

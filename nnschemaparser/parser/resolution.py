@@ -15,7 +15,10 @@ from torch._subclasses.fake_tensor import FakeTensorMode
 
 from nnschemaparser.core.model_schema import ModelBlockSchema
 from nnschemaparser.interpreter import SchemaInterpreter
-from nnschemaparser.interpreter.scope import forward_signature_defaults
+from nnschemaparser.interpreter.scope import (
+    forward_signature_defaults,
+    seed_scalar_inputs
+)
 
 
 class ShapeResolver:
@@ -103,9 +106,16 @@ class ShapeResolver:
             inputs_tensors_dtypes=inputs_tensors_dtypes
         )
         input_name: str
-        input_value: Tensor
+        input_value: Any
         for input_name, input_value in inputs_tensors_values.items():
-            scope[input_name] = input_value.detach().clone()
+
+            # Only the tensor values are detached and cloned
+            if isinstance(input_value, Tensor):
+                scope[input_name] = input_value.detach().clone()
+
+            # The scalar values are used as they are
+            else:
+                scope[input_name] = input_value
 
         # Seed the defaults of the forward arguments without a given value,
         # without overwriting the example values by the default None values
@@ -116,6 +126,12 @@ class ShapeResolver:
         default_value: Any
         for default_name, default_value in defaults.items():
             scope.setdefault(default_name, default_value)
+
+        # Seed the neutral values of the scalar inputs without a value
+        seed_scalar_inputs(block=block, scope=scope)
+
+        # Seed the neutral values of the scalar inputs without a value
+        seed_scalar_inputs(block=block, scope=scope)
 
         # Execute the schema with the real input tensors
         with torch.no_grad():
@@ -222,6 +238,12 @@ class ShapeResolver:
         default_value: Any
         for default_name, default_value in defaults.items():
             scope.setdefault(default_name, default_value)
+
+        # Seed the neutral values of the scalar inputs without a value
+        seed_scalar_inputs(block=block, scope=scope)
+
+        # Seed the neutral values of the scalar inputs without a value
+        seed_scalar_inputs(block=block, scope=scope)
 
         # Return the scope of the resolution pass
         return scope

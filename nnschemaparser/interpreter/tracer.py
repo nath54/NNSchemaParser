@@ -31,10 +31,15 @@ def _module_type_name(block: ModelBlockSchema) -> str:
         str: The module class name, or "?" without a source module.
     """
 
-    # The class name of the source module
-    if block.module is not None:
-        return type(block.module).__name__
-    return "?"
+    # Without a source module there is no name to display
+    if block.module is None:
+        return "?"
+
+    # The class name of the source module, with the method name if any
+    module_type: str = type(block.module).__name__
+    if block.method_name is not None:
+        return f"{module_type}.{block.method_name}"
+    return module_type
 
 
 class TraceListener:
@@ -257,12 +262,19 @@ class TraceRecorder(TraceListener):
             scope (dict[str, Any]): The scope holding the result.
         """
 
+        # The call reference depends on the instruction kind: a method call
+        # is an operation instruction, a sub-block call a block instruction
+        if isinstance(instruction, OpInstruction):
+            call_ref: str = instruction.qualified_name
+        else:
+            call_ref = instruction.block_ref.path
+
         # The called module type, arguments and result of the call
         module_type: str = _module_type_name(block=sub_block) \
             if sub_block is not None else "?"
         args: str = ", ".join(describe_ref(arg) for arg in instruction.args)
         self._log(
-            f"{instruction.out_var} = CALL {instruction.block_ref.path}({args})"
+            f"{instruction.out_var} = CALL {call_ref}({args})"
             f" [{module_type}]"
             f"  [{describe_value(scope.get(instruction.out_var))}]"
         )

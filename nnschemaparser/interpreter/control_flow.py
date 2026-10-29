@@ -150,7 +150,11 @@ class ControlFlowExecutor:
             raise ValueError("An if instruction must define a condition.")
 
         # Evaluate the condition expression of the if statement
-        self._execute_op(instruction=instruction.condition, scope=scope)
+        self._execute_op(
+            instruction=instruction.condition,
+            block=block,
+            scope=scope
+        )
         condition_value: Any = scope[instruction.condition.out_var]
 
         # Execute the body matching the condition value and propagate
@@ -225,7 +229,11 @@ class ControlFlowExecutor:
         """
 
         # Evaluate the iterable expression of the loop
-        self._execute_op(instruction=instruction.condition, scope=scope)
+        self._execute_op(
+            instruction=instruction.condition,
+            block=block,
+            scope=scope
+        )
         iterable: Any = scope[instruction.condition.out_var]
 
         # Execute the loop body once per value of the iterable

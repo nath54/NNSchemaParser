@@ -438,16 +438,20 @@ class ExpressionLowering(LoweringContext):
                 literal.
         """
 
-        # A weight or buffer is referenced by its name in the block scope,
-        # unless the name is shadowed by a parameter or a local variable of
-        # the forward, in which case the runtime attribute is used instead
-        if (attr in self.weight_names and attr not in self._param_names
-                and attr not in self._local_names):
-            return VarRef(name=attr)
+        # An attribute stored by the body is resolved at run time, even when
+        # the attribute is initialized to a literal by the __init__
+        if attr not in self._stored_self_attrs:
 
-        # A literal attribute is embedded as a constant value
-        if attr in self.literals:
-            return self.literals[attr]
+            # A weight or buffer is referenced by its name in the block scope,
+            # unless the name is shadowed by a parameter or a local variable
+            # of the forward, in which case the runtime attribute is used
+            if (attr in self.weight_names and attr not in self._param_names
+                    and attr not in self._local_names):
+                return VarRef(name=attr)
+
+            # A literal attribute is embedded as a constant value
+            if attr in self.literals:
+                return self.literals[attr]
 
         # Else the attribute is resolved on the source module at run time
         out_var: str = self._new_temp()

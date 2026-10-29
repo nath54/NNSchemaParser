@@ -69,6 +69,9 @@ class LoweringContext:
         # The local variable names of the lowered forward method
         self._local_names: set[str] = set()
 
+        # The attributes of self stored by the lowered method body
+        self._stored_self_attrs: set[str] = set()
+
         # Counter used to generate the temporary variable names
         self._temp_counter: int = 0
 
@@ -84,40 +87,90 @@ class LoweringContext:
                 and the names of the returned variables.
         """
 
-        # Get the source code of the forward method, dedented then parsed
-        source: str = textwrap.dedent(inspect.getsource(model.forward))
-        tree: ast.Module = ast.parse(source)
-
-        # Keep the globals of the forward method for the name resolutions
-        self.forward_globals = dict(resolve_forward(module=model).__globals__)
-
-        # Search for the forward function definition in the parsed tree
-        forward_def: ast.FunctionDef | None = None
-        node: ast.stmt
-        for node in tree.body:
-            if isinstance(node, ast.FunctionDef) and node.name == "forward":
-                forward_def = node
-                break
-
-        # If no forward definition was found, the model cannot be lowered
-        if forward_def is None:
-            raise UnsupportedSyntaxError("No forward method definition found", tree)
-
-        # Keep the parameter names of the forward method for the name roots
-        self._param_names = {arg.arg for arg in forward_def.args.args}
-
-        # Keep the name of the var-keyword parameter of the forward, if any
-        self._kwarg_name = (
-            forward_def.args.kwarg.arg if forward_def.args.kwarg else None
+        # Lower the forward function definition of the module
+        return self._lower_callable_source(
+            model=model, function_name="forward"
         )
 
-        # Keep the local variable names of the forward for the name roots
-        self._collect_local_names(forward_def=forward_def)
+    def lower_method(
+        self,
+        model: nn.Module,
+        method_name: str
+    ) -> tuple[list[Instruction], list[str]]:
+        """
+        Lower another method of a module into a list of instructions.
 
-        # Lower all the statements of the forward body
+        Args:
+            model (nn.Module): The module owning the method.
+            method_name (str): The name of the method to lower.
+
+        Returns:
+            tuple[list[Instruction], list[str]]: The instructions of the body
+                and the names of the returned variables.
+        """
+
+        # Lower the function definition of the method
+        return self._lower_callable_source(
+            model=model, function_name=method_name
+        )
+
+    def _lower_callable_source(
+        self,
+        model: nn.Module,
+        function_name: str
+    ) -> tuple[list[Instruction], list[str]]:
+        """
+        Lower one method of a module into a list of instructions.
+
+        Args:
+            model (nn.Module): The module owning the lowered method.
+            function_name (str): The name of the lowered method.
+
+        Returns:
+            tuple[list[Instruction], list[str]]: The instructions of the body
+                and the names of the returned variables.
+        """
+
+        # Get the source code of the method, dedented then parsed
+        method: Any = getattr(model, function_name)
+        source: str = textwrap.dedent(inspect.getsource(method))
+        tree: ast.Module = ast.parse(source)
+
+        # Keep the globals of the method for the name resolutions
+        self.forward_globals = dict(
+            resolve_forward(module=model).__globals__
+            if function_name == "forward" else method.__globals__
+        )
+
+        # Search for the function definition in the parsed tree
+        function_def: ast.FunctionDef | None = None
+        node: ast.stmt
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name == function_name:
+                function_def = node
+                break
+
+        # If no definition was found, the method cannot be lowered
+        if function_def is None:
+            raise UnsupportedSyntaxError(
+                f"No {function_name} method definition found", tree
+            )
+
+        # Keep the parameter names of the method for the name roots
+        self._param_names = {arg.arg for arg in function_def.args.args}
+
+        # Keep the name of the var-keyword parameter of the method, if any
+        self._kwarg_name = (
+            function_def.args.kwarg.arg if function_def.args.kwarg else None
+        )
+
+        # Keep the local variable names of the method for the name roots
+        self._collect_local_names(forward_def=function_def)
+
+        # Lower all the statements of the method body
         body: list[Instruction] = []
         stmt: ast.stmt
-        for stmt in forward_def.body:
+        for stmt in function_def.body:
             self._lower_stmt(stmt=stmt, body=body)
 
         # Extract the output variable names from the last return instruction
@@ -142,6 +195,20 @@ class LoweringContext:
         for node_name in ast.walk(forward_def):
             if isinstance(node_name, ast.Name) and isinstance(node_name.ctx, ast.Store):
                 self._local_names.add(node_name.id)
+
+        # An attribute of self stored by the body is resolved at run time,
+        # even when the attribute is initialized to a literal by the __init__
+        self._stored_self_attrs = set()
+        node: ast.AST
+        for node in ast.walk(forward_def):
+            if not isinstance(node, ast.Assign):
+                continue
+            target: ast.expr
+            for target in node.targets:
+                if isinstance(target, ast.Attribute) and isinstance(
+                    target.value, ast.Name
+                ) and target.value.id == "self":
+                    self._stored_self_attrs.add(target.attr)
 
     def _new_temp(self) -> str:
         """

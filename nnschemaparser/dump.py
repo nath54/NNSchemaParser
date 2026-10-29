@@ -9,6 +9,8 @@ the instruction body of every block, with the resolved shapes of every step.
 # Import Modules
 from typing import Any
 
+import types
+
 import torch
 from torch import Tensor
 
@@ -112,6 +114,20 @@ def describe_value(value: Any) -> str:
     if value is None or isinstance(value, (bool, int, float, str)):
         return repr(value)[:60]
 
+    # The modules are described by their name (e.g. torch)
+    if isinstance(value, types.ModuleType):
+        return value.__name__
+
+    # The classes are described by their qualified name (e.g. torch.Tensor)
+    if isinstance(value, type):
+        return f"{value.__module__}.{value.__qualname__}"
+
+    # The functions and the bound methods are described by their name,
+    # without the memory address of the default object repr
+    if isinstance(value, (types.MethodType, types.FunctionType,
+                          types.BuiltinMethodType)):
+        return f"method '{value.__name__}'"
+
     # Any other python value is shown by type and repr, briefly
     return f"{type(value).__name__}({repr(value)[:60]})"
 
@@ -133,6 +149,10 @@ def describe_ref(value: VarRef | Any) -> str:
 
     # The classes are described by their name (e.g. exception types)
     if isinstance(value, type):
+        return value.__name__
+
+    # The modules are described by their name (e.g. torch)
+    if isinstance(value, types.ModuleType):
         return value.__name__
     return repr(value)[:40]
 
@@ -321,7 +341,8 @@ def _dump_section(
 def dump_block(
     block: ModelBlockSchema,
     lines: list[str],
-    indent: str = ""
+    indent: str = "",
+    title: str | None = None
 ) -> None:
     """
     Recursively write a block schema to the lines.
@@ -330,16 +351,19 @@ def dump_block(
         block (ModelBlockSchema): The block schema to dump.
         lines (list[str]): The output lines, updated in place.
         indent (str): The current indentation prefix.
+        title (str | None): The optional header title overriding the default
+            block title (used for the parsed methods).
     """
 
     # Stop when the line budget is reached
     if len(lines) >= MAX_LINES:
         return
 
-    # The header with the module class of the block
+    # The header of the block, by default with its module class name
     module_type: str = type(block.module).__name__ \
         if block.module is not None else "?"
-    lines.append(f"{indent}=== BLOCK {module_type} ===")
+    header: str = title if title is not None else f"BLOCK {module_type}"
+    lines.append(f"{indent}=== {header} ===")
 
     # The declared inputs of the block
     _dump_section(
@@ -394,6 +418,18 @@ def dump_block(
     sub_block: ModelBlockSchema
     for sub_name, sub_block in block.sub_blocks.items():
         dump_block(sub_block, lines, indent + "  ")
+
+    # The other parsed methods of the module are dumped without their
+    # sub-blocks, already dumped with the parent block
+    method_name: str
+    method_block: ModelBlockSchema
+    for method_name, method_block in block.methods.items():
+        dump_block(
+            block=method_block,
+            lines=lines,
+            indent=indent,
+            title=f"METHOD {method_name} (of {module_type})"
+        )
 
 
 def dump_schema(schema: ModelBlockSchema, path: str) -> None:

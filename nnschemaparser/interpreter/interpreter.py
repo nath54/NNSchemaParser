@@ -166,10 +166,14 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
             scope (dict[str, Any]): The initial variables of the block.
         """
 
-        # Get the signature of the forward method of the block
-        signature: inspect.Signature = inspect.signature(
-            resolve_forward(module=block.module)
-        )
+        # The method blocks take the defaults of their own method
+        if block.method_name is not None:
+            callable_ = getattr(block.module, block.method_name)
+        else:
+            callable_ = resolve_forward(module=block.module)
+
+        # Get the signature of the executed callable of the block
+        signature: inspect.Signature = inspect.signature(callable_)
         parameter_name: str
         parameter: inspect.Parameter
         for parameter_name, parameter in signature.parameters.items():
@@ -213,7 +217,11 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
         # Dispatch to the execution of the specific instruction type,
         # propagating a return instruction reached in a nested body
         if isinstance(instruction, OpInstruction):
-            self._execute_op(instruction=instruction, scope=scope)
+            self._execute_op(
+                instruction=instruction,
+                block=block,
+                scope=scope
+            )
 
         elif isinstance(instruction, BlockInstruction):
             self._execute_block_call(

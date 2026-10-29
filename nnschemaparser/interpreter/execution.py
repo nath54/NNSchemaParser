@@ -10,6 +10,7 @@ placeholder tensor representations of the reached blocks.
 from typing import Any
 
 import inspect
+import types
 
 from torch import Tensor
 
@@ -78,12 +79,18 @@ class InstructionExecutor:
                 scope=scope
             )
 
-    def _execute_op(self, instruction: OpInstruction, scope: dict[str, Any]) -> None:
+    def _execute_op(
+        self,
+        instruction: OpInstruction,
+        block: ModelBlockSchema,
+        scope: dict[str, Any]
+    ) -> None:
         """
         Execute an operation instruction by calling its recorded callable.
 
         Args:
             instruction (OpInstruction): The operation instruction to execute.
+            block (ModelBlockSchema): The block schema owning the instruction.
             scope (dict[str, Any]): The current variables of the block.
         """
 
@@ -115,6 +122,22 @@ class InstructionExecutor:
         if isinstance(call_target, VarRef):
             call_target = self._resolve_value(value=call_target, scope=scope)
 
+        # A bound method of the block module with a parsed schema is
+        # executed through its schema instead of the real method
+        method_name: str | None = self._schema_method_name(
+            block=block, call_target=call_target
+        )
+        if method_name is not None:
+            self._execute_method_call(
+                instruction=instruction,
+                block=block,
+                method_name=method_name,
+                resolved_args=resolved_args,
+                resolved_kwargs=resolved_kwargs,
+                scope=scope
+            )
+            return
+
         # Call the recorded torch function with the resolved arguments
         result: Any = call_target(*resolved_args, **resolved_kwargs)
 
@@ -126,6 +149,139 @@ class InstructionExecutor:
 
         # Notify the listeners of the executed operation
         self._notify_op(instruction=instruction, scope=scope)
+
+    def _schema_method_name(
+        self,
+        block: ModelBlockSchema,
+        call_target: Any
+    ) -> str | None:
+        """
+        Get the parsed method name of a callable target of an operation.
+
+        Args:
+            block (ModelBlockSchema): The block schema owning the operation.
+            call_target (Any): The resolved callable of the operation.
+
+        Returns:
+            str | None: The name of the matching parsed method, or None when
+                the target is not a method of the block module or has no
+                parsed schema.
+        """
+
+        # Only the bound methods of the block module match a parsed method
+        if not isinstance(call_target, types.MethodType):
+            return None
+        if call_target.__self__ is not block.module:
+            return None
+        if call_target.__name__ not in block.methods:
+            return None
+
+        # Return the name of the matching parsed method
+        return call_target.__name__
+
+    def _execute_method_call(
+        self,
+        instruction: OpInstruction,
+        block: ModelBlockSchema,
+        method_name: str,
+        resolved_args: list[Any],
+        resolved_kwargs: dict[str, Any],
+        scope: dict[str, Any]
+    ) -> None:
+        """
+        Execute an operation calling a method with a parsed schema.
+
+        Args:
+            instruction (OpInstruction): The operation calling the method.
+            block (ModelBlockSchema): The block schema owning the operation.
+            method_name (str): The name of the parsed method schema.
+            resolved_args (list[Any]): The resolved positional arguments.
+            resolved_kwargs (dict[str, Any]): The resolved keyword arguments.
+            scope (dict[str, Any]): The current variables of the block.
+        """
+
+        # Get the schema of the called method
+        method_block: ModelBlockSchema = block.methods[method_name]
+
+        # Build the scope of the method execution from its declared inputs
+        method_scope: dict[str, Any] = self._build_callable_scope(
+            callable_=getattr(block.module, method_name),
+            inputs=method_block.inputs,
+            resolved_args=resolved_args,
+            resolved_kwargs=resolved_kwargs
+        )
+
+        # Recursively execute the body of the method schema
+        result: list[Any] = self.run(block=method_block, scope=method_scope)
+
+        # Bind the outputs like python: a single output is bound directly
+        # and several outputs are bound as a tuple
+        if len(result) == 1:
+            scope[instruction.out_var] = result[0]
+        else:
+            scope[instruction.out_var] = tuple(result)
+
+        # Fill the resolved representation of the instruction
+        if len(result) == 1:
+            instruction.resolve(value=result[0], capture_values=self.capture_values)
+
+        # Notify the listeners of the executed method call
+        self._notify_block_call(
+            instruction=instruction,
+            sub_block=method_block,
+            scope=scope
+        )
+
+    def _build_callable_scope(
+        self,
+        callable_: Any,
+        inputs: dict[str, TensorRepr],
+        resolved_args: list[Any],
+        resolved_kwargs: dict[str, Any]
+    ) -> dict[str, Any]:
+        """
+        Build the scope of a callable execution from its declared inputs.
+
+        Args:
+            callable_ (Any): The called callable, inspected for the defaults.
+            inputs (dict[str, TensorRepr]): The declared inputs by name.
+            resolved_args (list[Any]): The resolved positional arguments.
+            resolved_kwargs (dict[str, Any]): The resolved keyword arguments.
+
+        Returns:
+            dict[str, Any]: The scope of the callable execution.
+        """
+
+        # Map the declared input names to the positional arguments
+        scope: dict[str, Any] = {
+            input_name: arg
+            for input_name, arg in zip(inputs.keys(), resolved_args)
+        }
+
+        # Bind the keyword arguments to the declared inputs by name
+        input_name: str
+        for input_name, value in resolved_kwargs.items():
+            scope[input_name] = value
+
+        # Fill the missing arguments with the defaults of the callable
+        parameter: inspect.Parameter
+        for parameter_name, parameter in inspect.signature(callable_).parameters.items():
+
+            # Skip the self parameter and the already bound arguments
+            if parameter_name == "self" or parameter_name in scope:
+                continue
+
+            # The var-keyword parameter receives an empty dict when unbound
+            if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+                scope[parameter_name] = {}
+                continue
+
+            # Seed the scope with the default value of the argument
+            if parameter.default is not inspect.Parameter.empty:
+                scope[parameter_name] = parameter.default
+
+        # Return the built scope of the callable execution
+        return scope
 
     def _execute_block_call(
         self,
@@ -497,8 +653,11 @@ class InstructionExecutor:
             # Get the value of the input from the scope
             value: Any = scope.get(input_name)
 
-            # Only tensor values fill the representation
+            # The non tensor values describe their representation by type
             if not isinstance(value, Tensor):
+                if value is not None and input_repr.shape == () and \
+                        input_repr.dtype == PLACEHOLDER_DTYPE:
+                    input_repr.dtype = type(value).__name__
                 continue
 
             # Fill the placeholder shape and dtype of the input

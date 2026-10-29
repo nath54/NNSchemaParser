@@ -192,6 +192,12 @@ class StatementLowering(LoweringContext):
             self._lower_self_attr_assign(stmt=stmt, attr=target.attr, body=body)
             return
 
+        # An assignment to an attribute of another object is lowered to a
+        # setattr of the lowered object (e.g. outputs.pooler_output = x)
+        if isinstance(target, ast.Attribute):
+            self._lower_attr_assign(stmt=stmt, target=target, body=body)
+            return
+
         # A tuple of name targets is lowered by unpacking a temporary value
         if (
             isinstance(target, ast.Tuple)
@@ -203,6 +209,37 @@ class StatementLowering(LoweringContext):
         # Any other assignment target is not supported
         raise UnsupportedSyntaxError(
             "Only variable assignment targets are supported", stmt
+        )
+
+    def _lower_attr_assign(
+        self,
+        stmt: ast.Assign,
+        target: ast.Attribute,
+        body: list[Instruction]
+    ) -> None:
+        """
+        Lower an assignment to an attribute of an object as a setattr.
+
+        Args:
+            stmt (ast.Assign): The assignment statement to lower.
+            target (ast.Attribute): The attribute assignment target.
+            body (list[Instruction]): The body to append the instructions to.
+        """
+
+        # Lower the object owning the assigned attribute
+        object_ref: VarRef | Any = self._lower_expr(expr=target.value, body=body)
+
+        # Lower the assigned value
+        value_ref: VarRef | Any = self._lower_expr(expr=stmt.value, body=body)
+
+        # Set the attribute on the object with the builtin setattr
+        self._emit_op(
+            target=setattr,
+            qualified_name="setattr",
+            args=[object_ref, target.attr, value_ref],
+            kwargs={},
+            out_var=self._new_temp(),
+            body=body
         )
 
     def _lower_self_attr_assign(

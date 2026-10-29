@@ -9,12 +9,44 @@ forward arguments of a block.
 from typing import Any
 
 import inspect
+from typing import Any
 
 from torch import Tensor
 
+from nnschemaparser.core.model_schema import ModelBlockSchema
 from nnschemaparser.core.tensor_schema import PLACEHOLDER_DTYPE, TensorRepr
 from nnschemaparser.forward import resolve_forward
 
+
+
+# The neutral values of the scalar input types, used by the resolution
+SCALAR_NEUTRAL_VALUES: dict[str, Any] = {
+    "int": 0,
+    "float": 0.0,
+    "bool": False,
+    "str": ""
+}
+
+
+def seed_scalar_inputs(block: ModelBlockSchema, scope: dict[str, Any]) -> None:
+    """
+    Seed the scope with the neutral values of the scalar block inputs.
+
+    A scalar input declared by its type (e.g. an int or a str forward
+    parameter) is seeded with a neutral value when it has no given value and
+    no default, so the resolution can execute the data dependent branches.
+
+    Args:
+        block (ModelBlockSchema): The block schema being resolved.
+        scope (dict[str, Any]): The scope of the resolution, updated in place.
+    """
+
+    # Seed each declared scalar input that is not bound yet
+    input_name: str
+    input_repr: TensorRepr
+    for input_name, input_repr in block.inputs.items():
+        if input_repr.shape == () and input_repr.dtype in SCALAR_NEUTRAL_VALUES:
+            scope.setdefault(input_name, SCALAR_NEUTRAL_VALUES[input_repr.dtype])
 
 
 def resolve_placeholder(repr: TensorRepr, value: Tensor) -> None:
