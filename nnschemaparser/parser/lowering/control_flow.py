@@ -246,10 +246,18 @@ class ControlFlowLowering(LoweringContext):
         """
 
         # Register the loop variable as a container entry variable for calls
+        previous_container: str | None = self._loop_module_vars.get(bind_var)
         self._loop_module_vars[bind_var] = container_name
 
         # Lower the body of the loop
         loop_body: list[Instruction] = self._lower_body(stmt.body)
+
+        # Restore the previous binding of the loop variable, a container
+        # entry name is only valid inside the body of its loop
+        if previous_container is None:
+            self._loop_module_vars.pop(bind_var, None)
+        else:
+            self._loop_module_vars[bind_var] = previous_container
 
         # Append the control instruction of the container loop
         body.append(ControlInstruction(

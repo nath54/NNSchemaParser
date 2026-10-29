@@ -34,7 +34,7 @@ import torch  # noqa: E402
 from torch import Tensor, nn  # noqa: E402
 
 from nnschemaparser.core.model_schema import ModelBlockSchema  # noqa: E402
-from nnschemaparser.parser.children import SKIPPED_CHILDREN, collect_sub_blocks  # noqa: E402
+from nnschemaparser.parser.children import collect_sub_blocks  # noqa: E402
 from nnschemaparser.interpreter import SchemaInterpreter  # noqa: E402
 from nnschemaparser.parser.parser import NNParser  # noqa: E402
 from nnschemaparser.dump import describe_value, dump_schema  # noqa: E402
@@ -357,7 +357,6 @@ def run_model(spec: ModelSpec, force: bool = False) -> dict[str, Any]:
     # The parse of the model into a block schema
     try:
         start = time.time()
-        SKIPPED_CHILDREN.clear()
         schema = NNParser.parse_model(
             model=model,
             inputs_tensors_shapes={
@@ -371,7 +370,7 @@ def run_model(spec: ModelSpec, force: bool = False) -> dict[str, Any]:
         result["durations"]["parse"] = round(time.time() - start, 1)
         result["sub_blocks"] = len(schema.sub_blocks)
         result["instructions"] = _count_instructions(schema)
-        result["skipped_children"] = list(SKIPPED_CHILDREN)
+        result["skipped_children"] = _collect_skipped(schema=schema)
     except Exception as error:  # noqa: BLE001
         result["status"] = f"PARSE_ERROR: {type(error).__name__}: {error}"
         record_error(spec=spec, phase="parse", error=error)
@@ -461,6 +460,26 @@ def _count_instructions(schema: ModelBlockSchema) -> int:
     for sub in schema.sub_blocks.values():
         total += _count_instructions(sub)
     return total
+
+
+def _collect_skipped(schema: ModelBlockSchema) -> list[str]:
+    """
+    Collect the skipped children of a schema tree, as "name: reason" texts.
+
+    Args:
+        schema (ModelBlockSchema): The parsed schema.
+
+    Returns:
+        list[str]: The skipped children of the whole tree.
+    """
+
+    # The skipped of this block, then the recursive sub-blocks
+    skipped: list[str] = [f"{name}: {reason}" for name, reason in
+                          schema.skipped.items()]
+    sub: ModelBlockSchema
+    for sub in schema.sub_blocks.values():
+        skipped.extend(_collect_skipped(schema=sub))
+    return skipped
 
 
 def _write_result(path: Path, result: dict[str, Any]) -> None:

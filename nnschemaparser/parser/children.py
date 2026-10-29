@@ -20,11 +20,12 @@ from nnschemaparser.parser.lowering.errors import UnsupportedSyntaxError
 ParseModel = Callable[..., ModelBlockSchema]
 
 
-# The names of the children skipped during the last parse, for the harnesses
-SKIPPED_CHILDREN: list[str] = []
-
-
-def parse_child(name: str, child: nn.Module, parse_model: ParseModel) -> ModelBlockSchema | None:
+def parse_child(
+    name: str,
+    child: nn.Module,
+    parse_model: ParseModel,
+    skipped: dict[str, str]
+) -> ModelBlockSchema | None:
     """
     Parse a direct child module, returning None when it is not parsable.
 
@@ -32,6 +33,8 @@ def parse_child(name: str, child: nn.Module, parse_model: ParseModel) -> ModelBl
         name (str): The attribute name of the child in its parent.
         child (nn.Module): The child module to parse.
         parse_model (ParseModel): The parser entry point used recursively.
+        skipped (dict[str, str]): The skipped children recorded so far,
+            updated in place with the name and the reason of this child.
 
     Returns:
         ModelBlockSchema | None: The parsed schema of the child, or None
@@ -43,14 +46,15 @@ def parse_child(name: str, child: nn.Module, parse_model: ParseModel) -> ModelBl
         return parse_model(model=child, inputs_tensors_shapes={})
     except UnsupportedSyntaxError as error:
         print(f"WARNING: skipped unparsable sub-block '{name}': {error}")
-        SKIPPED_CHILDREN.append(f"{name}: {error}")
+        skipped[name] = str(error)
         return None
 
 
 def parse_container(
     name: str,
     module: nn.Module,
-    parse_model: ParseModel
+    parse_model: ParseModel,
+    skipped: dict[str, str]
 ) -> dict[str, ModelBlockSchema]:
     """
     Parse a sub-block container entry by entry.
@@ -62,6 +66,8 @@ def parse_container(
         name (str): The attribute name of the container in its parent.
         module (nn.Module): The container module to parse.
         parse_model (ParseModel): The parser entry point used recursively.
+        skipped (dict[str, str]): The skipped children recorded so far,
+            updated in place with the skipped entries of the container.
 
     Returns:
         dict[str, ModelBlockSchema]: The parsed entries keyed by "name.key".
@@ -78,7 +84,8 @@ def parse_container(
             parsed_entry: ModelBlockSchema | None = parse_child(
                 name=f"{name}.{index}",
                 child=entry,
-                parse_model=parse_model
+                parse_model=parse_model,
+                skipped=skipped
             )
             if parsed_entry is not None:
                 parsed[f"{name}.{index}"] = parsed_entry
@@ -90,7 +97,8 @@ def parse_container(
             parsed_entry = parse_child(
                 name=f"{name}.{key}",
                 child=entry,
-                parse_model=parse_model
+                parse_model=parse_model,
+                skipped=skipped
             )
             if parsed_entry is not None:
                 parsed[f"{name}.{key}"] = parsed_entry
@@ -111,10 +119,14 @@ def collect_sub_blocks(
         parse_model (ParseModel): The parser entry point used recursively.
 
     Returns:
-        tuple[dict[str, ModelBlockSchema], set[str], set[str]]: The parsed
-            sub-blocks by name, the names of the sub-block containers and
-            the names of the sub-block dictionaries.
+        tuple[dict[str, ModelBlockSchema], set[str], set[str],
+            dict[str, str]]: The parsed sub-blocks by name, the names of the
+            sub-block containers, the names of the sub-block dictionaries and
+            the skipped children by name with their skip reasons.
     """
+
+    # Initialize the skipped children of the model
+    skipped: dict[str, str] = {}
 
     # Initialize the names of the containers of the model
     container_names: set[str] = set()
@@ -136,7 +148,12 @@ def collect_sub_blocks(
             if isinstance(child, nn.ModuleDict):
                 dict_container_names.add(child_name)
             model_sub_blocks.update(
-                parse_container(name=child_name, module=child, parse_model=parse_model)
+                parse_container(
+                    name=child_name,
+                    module=child,
+                    parse_model=parse_model,
+                    skipped=skipped
+                )
             )
 
         # A direct sub-block is parsed recursively
@@ -144,10 +161,11 @@ def collect_sub_blocks(
             parsed_child: ModelBlockSchema | None = parse_child(
                 name=child_name,
                 child=child,
-                parse_model=parse_model
+                parse_model=parse_model,
+                skipped=skipped
             )
             if parsed_child is not None:
                 model_sub_blocks[child_name] = parsed_child
 
-    # Return the parsed sub-blocks and the container names of the model
-    return model_sub_blocks, container_names, dict_container_names
+    # Return the parsed sub-blocks, the container names and the skipped
+    return model_sub_blocks, container_names, dict_container_names, skipped

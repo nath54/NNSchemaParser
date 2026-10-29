@@ -31,7 +31,8 @@ class ModelBlockSchema:
         module: Any | None = None,
         methods: dict[str, "ModelBlockSchema"] | None = None,
         method_name: str | None = None,
-        input_defaults: dict[str, Any] | None = None
+        input_defaults: dict[str, Any] | None = None,
+        skipped: dict[str, str] | None = None
     ) -> None:
         """
         Init function.
@@ -55,6 +56,11 @@ class ModelBlockSchema:
                                             describes a method instead of the forward.
             input_defaults (dict[str, Any] | None): The default values of the
                                             optional inputs, by parameter name.
+            skipped (dict[str, str] | None): The children of the module that
+                                            could not be parsed, by name with
+                                            their skip reasons. They are
+                                            reached at run time through the
+                                            source module instead.
         """
 
         # Store here the model input(s) representation(s)
@@ -80,6 +86,9 @@ class ModelBlockSchema:
 
         # Store here the default values of the optional inputs
         self.input_defaults: dict[str, Any] = input_defaults or {}
+
+        # Store here the skipped children re-dispatched at run time
+        self.skipped: dict[str, str] = skipped or {}
 
         # Store here the name of the described method, if not the forward
         self.method_name: str | None = method_name

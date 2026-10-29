@@ -347,8 +347,8 @@ class ReturnInstruction(Instruction):
     """
     Return instruction of a block body.
 
-    Only return instructions at the top level of a block body are handled by
-    the interpreter for now.
+    A return instruction may be nested inside a control flow body, the
+    interpreter propagates its outputs up to the enclosing block.
     """
 
     def __init__(self, out_vars: list[str]) -> None:

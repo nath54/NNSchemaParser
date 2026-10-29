@@ -67,10 +67,12 @@ class NNParser:
         model_sub_blocks: dict[str, ModelBlockSchema]
         container_names: set[str]
         dict_container_names: set[str]
-        model_sub_blocks, container_names, dict_container_names = collect_sub_blocks(
-            model=model,
-            parse_model=NNParser.parse_model
-        )
+        skipped_children: dict[str, str]
+        model_sub_blocks, container_names, dict_container_names, \
+            skipped_children = collect_sub_blocks(
+                model=model,
+                parse_model=NNParser.parse_model
+            )
 
         # Collect the plain python attributes of the module as literals
         literals: dict[str, Any] = NNParser._collect_literals(
@@ -107,7 +109,8 @@ class NNParser:
             model_sub_blocks=model_sub_blocks,
             body=body,
             output_vars=output_vars,
-            methods=methods
+            methods=methods,
+            skipped=skipped_children
         )
 
         # Resolve the shapes and dtypes by executing the schema
@@ -246,8 +249,11 @@ class NNParser:
         model_sub_blocks: dict[str, ModelBlockSchema]
         container_names: set[str]
         dict_container_names: set[str]
-        model_sub_blocks, container_names, dict_container_names = \
-            collect_sub_blocks(model=model, parse_model=NNParser.parse_model)
+        skipped_children: dict[str, str]
+        model_sub_blocks, container_names, dict_container_names, \
+            skipped_children = collect_sub_blocks(
+                model=model, parse_model=NNParser.parse_model
+            )
         literals: dict[str, Any] = NNParser._collect_literals(
             model=model,
             model_weights=model_weights
@@ -301,7 +307,8 @@ class NNParser:
             body=method_body,
             module=model,
             methods=method_methods,
-            method_name=method_name
+            method_name=method_name,
+            skipped=skipped_children
         )
 
     @staticmethod
@@ -416,7 +423,8 @@ class NNParser:
         model_sub_blocks: dict[str, ModelBlockSchema],
         body: list[Instruction],
         output_vars: list[str],
-        methods: dict[str, ModelBlockSchema]
+        methods: dict[str, ModelBlockSchema],
+        skipped: dict[str, str]
     ) -> ModelBlockSchema:
         """
         Build the block schema of a model from its parsed parts.
@@ -502,7 +510,8 @@ class NNParser:
             body=body,
             module=model,
             methods=methods,
-            input_defaults=input_defaults
+            input_defaults=input_defaults,
+            skipped=skipped
         )
 
     @staticmethod

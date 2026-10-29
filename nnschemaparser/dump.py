@@ -420,6 +420,14 @@ def dump_block(
         ]
     )
 
+    # The skipped children re-dispatched to the source module at run time
+    _dump_section(
+        lines=lines,
+        indent=indent,
+        title="skipped (re-dispatched at run time)",
+        entries=[f"{name}: {reason}" for name, reason in block.skipped.items()]
+    )
+
     # The child blocks of the block, by attribute name
     _dump_section(
         lines=lines,
