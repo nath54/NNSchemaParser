@@ -7,7 +7,7 @@ the instruction body of every block, with the resolved shapes of every step.
 """
 
 # Import Modules
-from typing import Any
+from typing import Any, Iterator
 
 import types
 
@@ -127,6 +127,11 @@ def describe_value(value: Any) -> str:
     if isinstance(value, (types.MethodType, types.FunctionType,
                           types.BuiltinMethodType)):
         return f"method '{value.__name__}'"
+
+    # The iterators are described by their type only, without the memory
+    # address of the default object repr
+    if isinstance(value, Iterator):
+        return type(value).__name__
 
     # Any other python value is shown by type and repr, briefly
     return f"{type(value).__name__}({repr(value)[:60]})"
