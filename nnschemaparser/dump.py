@@ -21,8 +21,11 @@ from nnschemaparser.core.instructions import (
     VarRef
 )
 from nnschemaparser.core.model_schema import ModelBlockSchema
-from nnschemaparser.core.tensor_schema import TensorRepr, TensorReprWithValue
-from nnschemaparser.interpreter.scope import PLACEHOLDER_DTYPE
+from nnschemaparser.core.tensor_schema import (
+    PLACEHOLDER_DTYPE,
+    TensorRepr,
+    TensorReprWithValue
+)
 
 # The maximum number of lines written to a dump file
 MAX_LINES: int = 20000

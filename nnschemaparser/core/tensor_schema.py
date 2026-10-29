@@ -8,6 +8,9 @@ dtype, and TensorReprWithValue additionally holds the value itself.
 # Import Modules
 from torch import Tensor
 
+# The placeholder dtype of unresolved tensor representations
+PLACEHOLDER_DTYPE: str = ""
+
 
 class TensorRepr:
     """

@@ -12,12 +12,9 @@ import inspect
 
 from torch import Tensor
 
-from nnschemaparser.core.tensor_schema import TensorRepr
+from nnschemaparser.core.tensor_schema import PLACEHOLDER_DTYPE, TensorRepr
 from nnschemaparser.forward import resolve_forward
 
-
-# The placeholder dtype of unresolved tensor representations
-PLACEHOLDER_DTYPE: str = ""
 
 
 def resolve_placeholder(repr: TensorRepr, value: Tensor) -> None:

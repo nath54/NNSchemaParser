@@ -28,6 +28,7 @@ from nnschemaparser.interpreter.scope import (
     PLACEHOLDER_DTYPE,
     resolve_placeholder
 )
+from nnschemaparser.interpreter.tracer import TraceListener
 
 
 class InstructionExecutor:
@@ -37,6 +38,45 @@ class InstructionExecutor:
     The concrete interpreter inherits this class and adds the execution of the
     control flow instructions on top of it.
     """
+
+    def _notify_op(self, instruction: OpInstruction, scope: dict[str, Any]) -> None:
+        """
+        Notify every listener of an executed operation instruction.
+
+        Args:
+            instruction (OpInstruction): The executed operation.
+            scope (dict[str, Any]): The scope holding the result.
+        """
+
+        # Dispatch the event to all the registered listeners
+        listener: TraceListener
+        for listener in self.listeners:
+            listener.on_op(instruction=instruction, scope=scope)
+
+    def _notify_block_call(
+        self,
+        instruction: BlockInstruction,
+        sub_block: ModelBlockSchema | None,
+        scope: dict[str, Any]
+    ) -> None:
+        """
+        Notify every listener of an executed sub-block call instruction.
+
+        Args:
+            instruction (BlockInstruction): The executed block call.
+            sub_block (ModelBlockSchema | None): The called sub-block, None
+                when the call was re-dispatched to a real module.
+            scope (dict[str, Any]): The scope holding the result.
+        """
+
+        # Dispatch the event to all the registered listeners
+        listener: TraceListener
+        for listener in self.listeners:
+            listener.on_block_call(
+                instruction=instruction,
+                sub_block=sub_block,
+                scope=scope
+            )
 
     def _execute_op(self, instruction: OpInstruction, scope: dict[str, Any]) -> None:
         """
@@ -84,6 +124,9 @@ class InstructionExecutor:
         # Fill the resolved representation of the instruction
         instruction.resolve(value=result, capture_values=self.capture_values)
 
+        # Notify the listeners of the executed operation
+        self._notify_op(instruction=instruction, scope=scope)
+
     def _execute_block_call(
         self,
         instruction: BlockInstruction,
@@ -109,6 +152,11 @@ class InstructionExecutor:
                     module=bound,
                     scope=scope
                 )
+                self._notify_block_call(
+                    instruction=instruction,
+                    sub_block=None,
+                    scope=scope
+                )
                 return
 
         # A container entry skipped at parse time is dispatched to its
@@ -129,6 +177,11 @@ class InstructionExecutor:
                     self._execute_real_module_call(
                         instruction=instruction,
                         module=entry,
+                        scope=scope
+                    )
+                    self._notify_block_call(
+                        instruction=instruction,
+                        sub_block=None,
                         scope=scope
                     )
                     return
@@ -160,6 +213,13 @@ class InstructionExecutor:
         # Fill the resolved representation of the instruction
         if len(result) == 1:
             instruction.resolve(value=result[0], capture_values=self.capture_values)
+
+        # Notify the listeners of the executed sub-block call
+        self._notify_block_call(
+            instruction=instruction,
+            sub_block=sub_block,
+            scope=scope
+        )
 
     def _execute_real_module_call(
         self,

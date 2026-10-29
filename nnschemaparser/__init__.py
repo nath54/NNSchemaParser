@@ -10,11 +10,13 @@ callables.
 # Import Modules
 from nnschemaparser.core import ModelBlockSchema, TensorRepr, TensorReprWithValue
 from nnschemaparser.dump import dump_schema
-from nnschemaparser.interpreter import SchemaInterpreter
+from nnschemaparser.interpreter import SchemaInterpreter, TraceListener, TraceRecorder
 from nnschemaparser.parser import NNParser
 
 __all__ = [
     "ModelBlockSchema",
+    "TraceListener",
+    "TraceRecorder",
     "dump_schema",
     "NNParser",
     "SchemaInterpreter",

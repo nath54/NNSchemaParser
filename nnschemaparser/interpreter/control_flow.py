@@ -45,24 +45,86 @@ class ControlFlowExecutor:
                 the executed body, else None.
         """
 
+        # Notify the listeners of the control flow entry
+        self._notify_control_enter(instruction=instruction)
+
         # An if statement executes the body matching its condition value
         if instruction.kind == "if":
-            return self._execute_if(
+            result: list[Any] | None = self._execute_if(
                 instruction=instruction,
                 block=block,
                 scope=scope
             )
 
         # A for loop iterates over the values of its iterable expression
-        if instruction.kind == "for":
-            return self._execute_for(
+        elif instruction.kind == "for":
+            result = self._execute_for(
                 instruction=instruction,
                 block=block,
                 scope=scope
             )
 
         # Any other control flow kind is an error of the schema
-        raise ValueError(f"Unsupported control flow kind: {instruction.kind}")
+        else:
+            raise ValueError(f"Unsupported control flow kind: {instruction.kind}")
+
+        # Notify the listeners of the control flow exit
+        self._notify_control_exit(instruction=instruction)
+
+        # Return the result of the executed body
+        return result
+
+    def _notify_control_enter(self, instruction: ControlInstruction) -> None:
+        """
+        Notify every listener of a control flow instruction entry.
+
+        Args:
+            instruction (ControlInstruction): The control flow instruction.
+        """
+
+        # Dispatch the event to all the registered listeners
+        listener: TraceListener
+        for listener in self.listeners:
+            listener.on_control_enter(instruction=instruction)
+
+    def _notify_control_exit(self, instruction: ControlInstruction) -> None:
+        """
+        Notify every listener of a control flow instruction exit.
+
+        Args:
+            instruction (ControlInstruction): The control flow instruction.
+        """
+
+        # Dispatch the event to all the registered listeners
+        listener: TraceListener
+        for listener in self.listeners:
+            listener.on_control_exit(instruction=instruction)
+
+    def _notify_try_enter(self, instruction: TryInstruction) -> None:
+        """
+        Notify every listener of a try instruction entry.
+
+        Args:
+            instruction (TryInstruction): The try instruction.
+        """
+
+        # Dispatch the event to all the registered listeners
+        listener: TraceListener
+        for listener in self.listeners:
+            listener.on_try_enter(instruction=instruction)
+
+    def _notify_try_exit(self, instruction: TryInstruction) -> None:
+        """
+        Notify every listener of a try instruction exit.
+
+        Args:
+            instruction (TryInstruction): The try instruction.
+        """
+
+        # Dispatch the event to all the registered listeners
+        listener: TraceListener
+        for listener in self.listeners:
+            listener.on_try_exit(instruction=instruction)
 
     def _execute_if(
         self,
@@ -283,6 +345,37 @@ class ControlFlowExecutor:
     ) -> list[Any] | None:
         """
         Execute a try instruction with its exception handlers and finally.
+
+        Args:
+            instruction (TryInstruction): The try instruction to execute.
+            block (ModelBlockSchema): The block schema owning the instruction.
+            scope (dict[str, Any]): The current variables of the block.
+
+        Returns:
+            list[Any] | None: The outputs of a return instruction reached in
+                the body or a matched handler, else None.
+        """
+
+        # Execute the body of the try instruction, notifying the listeners
+        # of the entry and the exit of the whole statement
+        self._notify_try_enter(instruction=instruction)
+        try:
+            return self._execute_try_body(
+                instruction=instruction,
+                block=block,
+                scope=scope
+            )
+        finally:
+            self._notify_try_exit(instruction=instruction)
+
+    def _execute_try_body(
+        self,
+        instruction: TryInstruction,
+        block: ModelBlockSchema,
+        scope: dict[str, Any]
+    ) -> list[Any] | None:
+        """
+        Execute the body, handlers and finally of a try instruction.
 
         Args:
             instruction (TryInstruction): The try instruction to execute.

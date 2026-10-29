@@ -26,6 +26,7 @@ from nnschemaparser.core.instructions import (
     TryInstruction,
     VarRef
 )
+from nnschemaparser.interpreter.tracer import TraceListener
 from nnschemaparser.interpreter.control_flow import ControlFlowExecutor
 from nnschemaparser.interpreter.execution import InstructionExecutor
 
@@ -35,17 +36,26 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
     Executes the body of a ModelBlockSchema block.
     """
 
-    def __init__(self, capture_values: bool = False) -> None:
+    def __init__(
+        self,
+        capture_values: bool = False,
+        listeners: list[TraceListener] | None = None
+    ) -> None:
         """
         Init function.
 
         Args:
             capture_values (bool): If True, every tensor result is kept as a
                 TensorReprWithValue inside the instruction resolved field.
+            listeners (list[TraceListener] | None): The optional listeners
+                notified of every event of the schema executions.
         """
 
         # Store here whether the intermediate values must be captured
         self.capture_values: bool = capture_values
+
+        # Store here the listeners of the interpreter events
+        self.listeners: list[TraceListener] = listeners or []
 
     def run(self, block: ModelBlockSchema, scope: dict[str, Any]) -> list[Any]:
         """
@@ -74,6 +84,9 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
         # Resolve the placeholder representations of the block inputs
         self._resolve_block_inputs(block=block, scope=scope)
 
+        # Notify the listeners of the block entry
+        self._notify_block_enter(block=block, scope=scope)
+
         # Execute all the instructions of the block body in order
         instruction: Instruction
         for instruction in block.body:
@@ -87,10 +100,40 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
 
             # A returned result stops the execution of the block
             if result is not None:
+                self._notify_block_exit(block=block, result=result)
                 return result
 
         # If no return instruction was found, the block returns nothing
+        self._notify_block_exit(block=block, result=[])
         return []
+
+    def _notify_block_enter(self, block: ModelBlockSchema, scope: dict[str, Any]) -> None:
+        """
+        Notify every listener of a block execution entry.
+
+        Args:
+            block (ModelBlockSchema): The block being entered.
+            scope (dict[str, Any]): The scope of the block execution.
+        """
+
+        # Dispatch the event to all the registered listeners
+        listener: TraceListener
+        for listener in self.listeners:
+            listener.on_block_enter(block=block, scope=scope)
+
+    def _notify_block_exit(self, block: ModelBlockSchema, result: list[Any]) -> None:
+        """
+        Notify every listener of a block execution exit.
+
+        Args:
+            block (ModelBlockSchema): The block being exited.
+            result (list[Any]): The values returned by the block.
+        """
+
+        # Dispatch the event to all the registered listeners
+        listener: TraceListener
+        for listener in self.listeners:
+            listener.on_block_exit(block=block, result=result)
 
     def _seed_weights(self, block: ModelBlockSchema, scope: dict[str, Any]) -> None:
         """

@@ -38,7 +38,7 @@ from nnschemaparser.parser.children import SKIPPED_CHILDREN, collect_sub_blocks 
 from nnschemaparser.interpreter import SchemaInterpreter  # noqa: E402
 from nnschemaparser.parser.parser import NNParser  # noqa: E402
 from nnschemaparser.dump import describe_value, dump_schema  # noqa: E402
-from tests.hf_dump import TraceRecorder, install_tracer, uninstall_tracer  # noqa: E402
+from nnschemaparser.interpreter import SchemaInterpreter, TraceRecorder  # noqa: E402
 from tests.hf_registry import MODEL_SPECS, ModelSpec  # noqa: E402
 
 # The output directories of the sweep
@@ -392,17 +392,16 @@ def run_model(spec: ModelSpec, force: bool = False) -> dict[str, Any]:
         start = time.time()
         torch.manual_seed(0)
         tracer: TraceRecorder = TraceRecorder()
-        install_tracer(tracer=tracer)
-        try:
-            # The capture runs without grad like the reference forward, as
-            # some models produce slightly different values with grad
-            with torch.no_grad():
-                outputs = SchemaInterpreter(capture_values=True).run(
-                    block=schema,
-                    scope={key: value.clone() for key, value in inputs.items()}
-                )
-        finally:
-            uninstall_tracer()
+        # The capture runs without grad like the reference forward, as
+        # some models produce slightly different values with grad
+        with torch.no_grad():
+            outputs = SchemaInterpreter(
+                capture_values=True,
+                listeners=[tracer]
+            ).run(
+                block=schema,
+                scope={key: value.clone() for key, value in inputs.items()}
+            )
         result["durations"]["execute"] = round(time.time() - start, 1)
         tracer.save(str(model_dir / "trace.txt"))
     except Exception as error:  # noqa: BLE001

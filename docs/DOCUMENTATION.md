@@ -211,6 +211,16 @@ The interpreter is deliberately the *same* executor for both modes: the values
 you capture in the WebUI are produced by exactly the code path that validated
 the shapes at parse time.
 
+### Tracing an execution
+
+The interpreter accepts `listeners: list[TraceListener]` at construction and
+notifies them of every event: block enters and exits, executed operations,
+sub-block calls, control flows and try statements. The package ships
+`TraceRecorder`, a listener writing the chronological indented text trace
+(one line per event, with the value signature of every tensor) used by the
+validation harness. Custom listeners subclass `TraceListener` and implement
+only the hooks they need.
+
 **Grad-mode note** — a few models (e.g. `beit`) produce slightly different
 values with and without grad. Always run the reference and the capture under
 the *same* grad mode; `torch.no_grad()` everywhere is the safe choice.
@@ -268,17 +278,8 @@ WebUI fixtures:
 
 ```python
 from nnschemaparser import dump_schema
-from tests.hf_dump import TraceRecorder, install_tracer, uninstall_tracer
 
 dump_schema(schema=schema, path="schema.txt")   # full recursive block dump
-
-tracer = TraceRecorder()
-install_tracer(tracer=tracer)
-try:
-    SchemaInterpreter(capture_values=True).run(block=schema, scope=scope)
-finally:
-    uninstall_tracer()
-tracer.save("trace.txt")                        # one line per operation, with values
 ```
 
 The schema dump shows, for every block, its inputs, outputs, weights and
@@ -507,6 +508,7 @@ nnschemaparser/              The package (pip installable)
     execution.py             op / block call / return execution
     control_flow.py          if / for / try execution
     scope.py                 scope seeding (weights, defaults, $self)
+    tracer.py                TraceListener hooks and TraceRecorder
 
 tests/                       Validation harness and regressions
 docs/                        This documentation
