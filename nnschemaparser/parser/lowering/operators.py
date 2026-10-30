@@ -17,7 +17,8 @@ from nnschemaparser.parser.lowering.errors import UnsupportedSyntaxError
 from nnschemaparser.parser.lowering.runtime_ops import (
     BINARY_OPERATORS,
     COMPARISON_OPERATORS,
-    bool_and
+    bool_and,
+    not_contains
 )
 
 
@@ -130,6 +131,12 @@ class OperatorLowering(LoweringContext):
         if op_type is ast.In:
             fn: Callable[[Any, Any], Any] = operator.contains
             name: str = "contains"
+            args = [right, left]
+
+        # The negated membership test also has reversed arguments
+        elif op_type is ast.NotIn:
+            fn = not_contains
+            name = "not_contains"
             args = [right, left]
 
         # Else the comparison operator is mapped directly

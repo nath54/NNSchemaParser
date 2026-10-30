@@ -327,6 +327,8 @@ The lowering covers the Python actually written in `forward` methods:
 | Indexed self-calls (`self[0](...)`, `self[-1](x)`, `self[i](x)`) | ✅ self as its own container (ParametrizationList) |
 | Dict displays (`{"key": value}`) | ✅ lowered to a `make_dict` op |
 | `continue` / `break` in loops | ✅ loop control signals, `finally` bodies still run |
+| Tuple loop targets (`for c1, c2 in zip(...)`, nested) | ✅ hidden iteration variable + getitem unpacking |
+| `not in` comparisons | ✅ |
 | Multiple / tuple return values | ✅ |
 | `self.weight`, buffers, plain attributes, config objects | ✅ |
 | `super()` inside a forward body (zero-arg and explicit) | ✅ lowered to a `super` op with the class resolved statically |

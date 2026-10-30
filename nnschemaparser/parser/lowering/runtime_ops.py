@@ -135,6 +135,22 @@ def identity(value: Any) -> Any:
     return value
 
 
+def not_contains(sequence: Any, item: Any) -> bool:
+    """
+    Return whether the item is not in the sequence.
+
+    Args:
+        sequence (Any): The sequence tested for the absence of the item.
+        item (Any): The item tested for absence.
+
+    Returns:
+        bool: Whether the item is not in the sequence.
+    """
+
+    # Return the negated membership test
+    return item not in sequence
+
+
 def bool_and(left: Any, right: Any) -> Any:
     """
     Return the logical and of two values.

@@ -138,3 +138,51 @@ class ForwardCallModel(nn.ModuleList):
 
 
 check("forward_call", ForwardCallModel(), torch.randn(2, 4))
+
+
+class ZipLoopModel(nn.ModuleList):
+    """Runs pairs of layers zipped together (HiFiCodec ResBlock pattern)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.convs1 = nn.ModuleList([nn.Linear(4, 4), nn.Linear(4, 4)])
+        self.convs2 = nn.ModuleList([nn.Linear(4, 4), nn.Linear(4, 4)])
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for c1, c2 in zip(self.convs1, self.convs2):
+            x = c1(x) + 1
+            x = c2(x) + 1
+        return x
+
+
+class NestedLoopModel(nn.Module):
+    """Unpacks a nested tuple loop target from an enumerate."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.layers = nn.ModuleList([nn.Linear(4, 4), nn.Linear(4, 4)])
+        self.scales = nn.Parameter(torch.ones(2))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        outputs = []
+        for i, (layer, scale) in enumerate(
+            zip(self.layers, (self.scales[0], self.scales[1]))
+        ):
+            outputs.append(layer(x * scale))
+        return sum(outputs)
+
+
+check("zip_loop", ZipLoopModel(), torch.randn(2, 4))
+check("nested_loop", NestedLoopModel(), torch.randn(2, 4))
+
+
+class NotInModel(nn.Module):
+    """Checks a membership negation on a dimension (torch RNN pattern)."""
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.dim() not in (2, 3):
+            raise ValueError("bad rank")
+        return x * 2
+
+
+check("not_in", NotInModel(), torch.randn(2, 4))

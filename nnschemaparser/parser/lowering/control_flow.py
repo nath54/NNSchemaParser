@@ -9,12 +9,14 @@ corresponding control flow instructions.
 from typing import Any
 
 import ast
+import operator
 
 from nnschemaparser.core.instructions import (
     BlockRef,
     ControlInstruction,
     Instruction,
     OpInstruction,
+    VarRef,
     TryInstruction
 )
 from nnschemaparser.parser.lowering.base import LoweringContext
@@ -200,22 +202,48 @@ class ControlFlowLowering(LoweringContext):
         """
         Lower a regular for loop over an iterable expression.
 
+        A tuple loop target (e.g. `for c1, c2 in zip(...)`) binds a hidden
+        variable to each iteration value and prepends the unpacking of its
+        elements to the body of the loop.
+
         Args:
             stmt (ast.For): The for loop statement to lower.
             body (list[Instruction]): The body to append the instruction to.
+
+        Raises:
+            UnsupportedSyntaxError: When the loop target is neither a name
+                nor a tuple of names and nested tuples of names.
         """
 
-        # Only simple loop variables are supported
-        if not isinstance(stmt.target, ast.Name):
+        # A simple loop variable is bound to each iteration value directly
+        if isinstance(stmt.target, ast.Name):
+            bind_var: str = stmt.target.id
+            unpack_body: list[Instruction] = []
+
+        # A tuple of names and nested tuples of names is unpacked element
+        # by element from the hidden iteration variable
+        elif self._is_name_tuple_target(target=stmt.target):
+            bind_var = self._new_temp()
+            unpack_body = []
+            self._lower_loop_tuple_target(
+                target=stmt.target,
+                value_var=bind_var,
+                body=unpack_body
+            )
+
+        # Any other loop target is not supported
+        else:
             raise UnsupportedSyntaxError(
-                "Only simple loop variables are supported", stmt
+                "Only simple loop variables and tuples of names are supported",
+                stmt
             )
 
         # Lower the iterable expression into a temporary operation
         iterable: OpInstruction = self._lower_condition(test=stmt.iter, body=body)
 
-        # Lower the body of the loop
+        # Lower the body of the loop, prefixed by the target unpacking
         loop_body: list[Instruction] = self._lower_body(stmt.body)
+        loop_body[:0] = unpack_body
 
         # Append the control instruction of the for loop
         body.append(ControlInstruction(
@@ -223,8 +251,85 @@ class ControlFlowLowering(LoweringContext):
             condition=iterable,
             body=loop_body,
             else_body=[],
-            bind_var=stmt.target.id
+            bind_var=bind_var
         ))
+
+    def _is_name_tuple_target(self, target: ast.expr) -> bool:
+        """
+        Check whether a loop target is a tuple of names and nested tuples.
+
+        Args:
+            target (ast.expr): The loop target of the for statement.
+
+        Returns:
+            bool: Whether the target only binds names and nested tuples.
+        """
+
+        # A tuple target is valid when all its elements are names or valid
+        # nested tuple targets
+        if not isinstance(target, ast.Tuple):
+            return False
+        element: ast.expr
+        for element in target.elts:
+            if not (
+                isinstance(element, ast.Name)
+                or self._is_name_tuple_target(target=element)
+            ):
+                return False
+        return True
+
+    def _lower_loop_tuple_target(
+        self,
+        target: ast.Tuple,
+        value_var: str,
+        body: list[Instruction]
+    ) -> None:
+        """
+        Lower the unpacking of a tuple loop target into instructions.
+
+        Each element is bound from the value variable with a getitem
+        operation, a nested tuple target being unpacked recursively from
+        its own hidden variable.
+
+        Args:
+            target (ast.Tuple): The tuple loop target to unpack.
+            value_var (str): The name of the variable holding the iterated
+                value of the current iteration.
+            body (list[Instruction]): The body to append instructions to.
+        """
+
+        # Bind each element of the target from the value variable
+        element_index: int
+        element: ast.expr
+        for element_index, element in enumerate(target.elts):
+
+            # A name element is bound directly
+            if isinstance(element, ast.Name):
+                self._emit_op(
+                    target=operator.getitem,
+                    qualified_name="getitem",
+                    args=[VarRef(name=value_var), element_index],
+                    kwargs={},
+                    out_var=element.id,
+                    body=body
+                )
+                continue
+
+            # A nested tuple element is unpacked from its own variable
+            sub_var: str = self._new_temp()
+            self._emit_op(
+                target=operator.getitem,
+                qualified_name="getitem",
+                args=[VarRef(name=value_var), element_index],
+                kwargs={},
+                out_var=sub_var,
+                body=body
+            )
+            self._lower_loop_tuple_target(
+                target=element,
+                value_var=sub_var,
+                body=body
+            )
 
     def _lower_container_for(
         self,
