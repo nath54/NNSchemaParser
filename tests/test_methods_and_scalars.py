@@ -134,9 +134,19 @@ def test_scalar_inputs() -> None:
     assert torch.equal(outputs[0], model(x, times=5, tag="simple"))
 
 
+def test_all() -> None:
+    """
+    Run all the tests of the module for the pytest discovery.
+    """
+
+    torch.manual_seed(0)
+    test_method_schema()
+    test_scalar_inputs()
+
+
 if __name__ == "__main__":
 
     # Run all the tests of the module
-    test_method_schema()
+    test_all()
     test_scalar_inputs()
     print("tests.test_methods_and_scalars: ALL OK")

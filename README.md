@@ -109,7 +109,7 @@ depth) — this is what a WebUI consumes to display every intermediate value:
 ## Installation
 
 ```bash
-pip install .            # or: pip install -e .[test] for the harness extras
+pip install .            # or: pip install -e .[research] for the harness extras
 ```
 
 Requires Python ≥ 3.12 and PyTorch ≥ 2.0. The model classes must be importable
@@ -127,11 +127,18 @@ matrix and the sweep CLI.
 
 ## Documentation
 
+- **[docs/API.md](docs/API.md)** — the public API: parsing, executing,
+  tracing, dumping and walking schemas.
 - **[docs/DOCUMENTATION.md](docs/DOCUMENTATION.md)** — full documentation:
-  how the parser works, the schema and instruction reference, the interpreter,
-  usage recipes, supported syntax, supported/unsupported models, and limitations.
-- `tests/hf_sweep.py` — the validation harness CLI.
-- `tests/test_parser.py`, `tests/test_speech_models.py` — regression tests.
+  how the parser works, the schema and instruction reference, the
+  interpreter, usage recipes, supported syntax, supported/unsupported
+  models, and limitations.
+- **[CHANGELOG.md](CHANGELOG.md)** — the release history.
+- `tests/hf_sweep.py` — the validation harness CLI (58 HuggingFace models).
+- `tests/test_new_syntax.py`, `tests/test_parser.py`,
+  `tests/test_methods_and_scalars.py` — the fixture test suite (pytest,
+  no network needed), also runnable with `python -m tests.test_new_syntax`.
+- `tests/test_speech_models.py` — the espnet/torchaudio regression tests.
 
 ## License
 

@@ -173,9 +173,21 @@ def main() -> None:
         block=schema,
         scope={"x": x.clone()}
     )
-    print("interpreter == model.forward:", torch.allclose(out[0], model(x), atol=1e-6))
+    matches: bool = torch.allclose(out[0], model(x), atol=1e-6)
+    print("interpreter == model.forward:", matches)
+    assert matches, "The schema execution differs from the real forward."
+
+
+def test_parser() -> None:
+    """
+    Run the parser test of the module for the pytest discovery.
+    """
+
+    torch.manual_seed(0)
+    main()
 
 
 # Main entry of the test file
 if __name__ == "__main__":
+    torch.manual_seed(0)
     main()
