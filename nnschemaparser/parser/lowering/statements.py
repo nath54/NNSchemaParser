@@ -11,7 +11,14 @@ from typing import Any
 import ast
 import operator
 
-from nnschemaparser.core.instructions import Instruction, OpInstruction, ReturnInstruction, VarRef
+from nnschemaparser.core.instructions import (
+    BreakInstruction,
+    ContinueInstruction,
+    Instruction,
+    OpInstruction,
+    ReturnInstruction,
+    VarRef
+)
 from nnschemaparser.parser.lowering.base import LoweringContext
 from nnschemaparser.parser.lowering.errors import UnsupportedSyntaxError
 from nnschemaparser.parser.lowering.naming import dotted_name, resolve_dotted_name
@@ -90,6 +97,14 @@ class StatementLowering(LoweringContext):
             return
         if isinstance(stmt, ast.Return):
             self._lower_return(stmt=stmt, body=body)
+            return
+
+        # The loop control statements bind no variable
+        if isinstance(stmt, ast.Continue):
+            body.append(ContinueInstruction())
+            return
+        if isinstance(stmt, ast.Break):
+            body.append(BreakInstruction())
             return
 
         # The statements without tensor effect are lowered to nothing

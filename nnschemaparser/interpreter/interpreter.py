@@ -19,6 +19,8 @@ from nnschemaparser.forward import resolve_forward
 from nnschemaparser.core.instructions import (
     BlockInstruction,
     BlockRef,
+    BreakInstruction,
+    ContinueInstruction,
     ControlInstruction,
     Instruction,
     OpInstruction,
@@ -27,7 +29,11 @@ from nnschemaparser.core.instructions import (
     VarRef
 )
 from nnschemaparser.interpreter.tracer import TraceListener
-from nnschemaparser.interpreter.control_flow import ControlFlowExecutor
+from nnschemaparser.interpreter.control_flow import (
+    ControlFlowExecutor,
+    _LoopBreak,
+    _LoopContinue
+)
 from nnschemaparser.interpreter.execution import InstructionExecutor
 
 
@@ -251,6 +257,12 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
                 block=block,
                 scope=scope
             )
+
+        elif isinstance(instruction, ContinueInstruction):
+            raise _LoopContinue()
+
+        elif isinstance(instruction, BreakInstruction):
+            raise _LoopBreak()
 
         else:
             raise TypeError(

@@ -227,3 +227,18 @@ def setitem(obj: Any, key: Any, value: Any) -> None:
 
     # Set the item on the object
     obj[key] = value
+
+
+def make_dict(*args: Any) -> dict:
+    """
+    Build a dict from alternating keys and values.
+
+    Args:
+        *args (Any): The keys and the values of the dict, alternating.
+
+    Returns:
+        dict: The built dict.
+    """
+
+    # Pair the arguments two by two into a dict
+    return dict(zip(args[0::2], args[1::2]))

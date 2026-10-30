@@ -364,3 +364,36 @@ class ReturnInstruction(Instruction):
 
         # Store here the names of the returned variables
         self.out_vars: list[str] = out_vars
+
+
+class ContinueInstruction(Instruction):
+    """
+    Continue instruction of a loop body.
+
+    The execution of the current iteration stops and the loop goes to its
+    next iteration, like the python continue statement.
+    """
+
+    def __init__(self) -> None:
+        """
+        Init function.
+        """
+
+        # Init parent, a continue instruction binds no new variable
+        super().__init__(out_var="")
+
+
+class BreakInstruction(Instruction):
+    """
+    Break instruction of a loop body.
+
+    The execution of the loop stops, like the python break statement.
+    """
+
+    def __init__(self) -> None:
+        """
+        Init function.
+        """
+
+        # Init parent, a break instruction binds no new variable
+        super().__init__(out_var="")

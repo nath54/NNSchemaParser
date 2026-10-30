@@ -16,6 +16,8 @@ import torch
 from torch import Tensor
 
 from nnschemaparser.core.instructions import (
+    BreakInstruction,
+    ContinueInstruction,
     BlockInstruction,
     ControlInstruction,
     Instruction,
@@ -248,6 +250,12 @@ def instruction_line(instruction: Instruction) -> str:
             f"{instruction.out_var} = CALL "
             f"{instruction.block_ref.path}{index}({all_args}){splat}"
         )
+
+    # The loop control statements
+    if isinstance(instruction, ContinueInstruction):
+        return "CONTINUE"
+    if isinstance(instruction, BreakInstruction):
+        return "BREAK"
 
     # The return statement
     if isinstance(instruction, ReturnInstruction):

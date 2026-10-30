@@ -18,6 +18,29 @@ from nnschemaparser.core.container_keys import (
 )
 
 
+class _LoopSignal(BaseException):
+    """
+    Base of the loop control signals raised by the interpreter.
+
+    The signals derive from BaseException, so the try handlers of the
+    interpreted forwards never catch them, while their finally bodies still
+    run like in python.
+    """
+
+
+class _LoopContinue(_LoopSignal):
+    """
+    Signal of a continue instruction reached in a loop body.
+    """
+
+
+class _LoopBreak(_LoopSignal):
+    """
+    Signal of a break instruction reached in a loop body.
+    """
+
+
+
 class ControlFlowExecutor:
     """
     Executes the control flow instructions of a block schema.
@@ -251,13 +274,18 @@ class ControlFlowExecutor:
             # Bind the loop variable to the current iteration value
             scope[instruction.bind_var] = value
 
-            # Execute the body of the loop for the current iteration and
-            # propagate a return instruction reached in the body
-            result: list[Any] | None = self._run_body(
-                body=instruction.body,
-                block=block,
-                scope=scope
-            )
+            # Execute the body of the loop for the current iteration,
+            # propagating a reached return and handling the loop controls
+            try:
+                result: list[Any] | None = self._run_body(
+                    body=instruction.body,
+                    block=block,
+                    scope=scope
+                )
+            except _LoopContinue:
+                continue
+            except _LoopBreak:
+                break
             if result is not None:
                 return result
 
@@ -299,12 +327,18 @@ class ControlFlowExecutor:
             if not scope[instruction.condition.out_var]:
                 break
 
-            # Execute the body of the loop and propagate a reached return
-            result: list[Any] | None = self._run_body(
-                body=instruction.body,
-                block=block,
-                scope=scope
-            )
+            # Execute the body of the loop, propagating a reached return
+            # and handling the loop controls
+            try:
+                result: list[Any] | None = self._run_body(
+                    body=instruction.body,
+                    block=block,
+                    scope=scope
+                )
+            except _LoopContinue:
+                continue
+            except _LoopBreak:
+                break
             if result is not None:
                 return result
 
@@ -387,13 +421,18 @@ class ControlFlowExecutor:
             if instruction.index_var is not None:
                 scope[instruction.index_var] = entry_index
 
-            # Execute the body of the loop for the current iteration and
-            # propagate a return instruction reached in the loop body
-            result: list[Any] | None = self._run_body(
-                body=instruction.body,
-                block=block,
-                scope=scope
-            )
+            # Execute the body of the loop for the current iteration,
+            # propagating a reached return and handling the loop controls
+            try:
+                result: list[Any] | None = self._run_body(
+                    body=instruction.body,
+                    block=block,
+                    scope=scope
+                )
+            except _LoopContinue:
+                continue
+            except _LoopBreak:
+                break
             if result is not None:
                 return result
 

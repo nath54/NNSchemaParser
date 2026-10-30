@@ -48,6 +48,21 @@ class CallLowering(LoweringContext):
             str: The name of the variable the result is bound to.
         """
 
+        # An explicit .forward() call on a sub-block call target is the
+        # sub-block call itself: the container entry variables hold the
+        # sub-block schemas, whose forward is executed through the block
+        # call of the entry
+        if (
+            isinstance(call.func, ast.Attribute)
+            and call.func.attr == "forward"
+            and self._is_sub_block_target(target=call.func.value)
+        ):
+            call = ast.Call(
+                func=call.func.value,
+                args=call.args,
+                keywords=call.keywords
+            )
+
         # The kwargs unpacking must be a plain variable name, the starred
         # arguments are handled inside the lowering of the call arguments
         kwargs_var: str | None = self._kwargs_var(call=call)
@@ -147,6 +162,49 @@ class CallLowering(LoweringContext):
             and call.func.value.id == "self"
             and call.func.attr in self.sub_block_names
         )
+
+    def _is_sub_block_target(self, target: ast.expr) -> bool:
+        """
+        Check whether an expression targets a sub-block call receiver.
+
+        Args:
+            target (ast.expr): The receiver expression of a forward call.
+
+        Returns:
+            bool: Whether the receiver is a direct sub-block of self, a
+                container entry loop variable, or an indexed container
+                entry of self.
+        """
+
+        # A loop variable bound to the entries of a sub-block container
+        if isinstance(target, ast.Name) and (
+            target.id in self._loop_module_vars
+        ):
+            return True
+
+        # A direct sub-block of self
+        if (
+            isinstance(target, ast.Attribute)
+            and isinstance(target.value, ast.Name)
+            and target.value.id == "self"
+            and target.attr in self.sub_block_names
+        ):
+            return True
+
+        # An indexed entry of a container of self, or of self itself
+        if isinstance(target, ast.Subscript) and isinstance(
+            target.value, ast.Attribute
+        ) and isinstance(target.value.value, ast.Name) and (
+            target.value.value.id == "self"
+        ) and target.value.attr in self.container_names:
+            return True
+        if isinstance(target, ast.Subscript) and isinstance(
+            target.value, ast.Name
+        ) and target.value.id == "self":
+            return True
+
+        # Any other receiver is not a sub-block call target
+        return False
 
     def _is_self_container_call(self, call: ast.Call) -> bool:
         """

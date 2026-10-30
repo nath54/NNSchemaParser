@@ -121,3 +121,20 @@ class IndexedSelfModel(nn.ModuleList):
 
 
 check("indexed_self", IndexedSelfModel(), torch.randn(2, 4))
+
+
+class ForwardCallModel(nn.ModuleList):
+    """Calls its entries through an explicit .forward() method call."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.append(nn.Linear(4, 4))
+        self.append(nn.ReLU())
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for entry in self:
+            x = entry.forward(x)
+        return x
+
+
+check("forward_call", ForwardCallModel(), torch.randn(2, 4))

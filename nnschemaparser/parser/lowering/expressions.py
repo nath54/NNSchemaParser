@@ -16,7 +16,7 @@ from nnschemaparser.core.instructions import ControlInstruction, Instruction, Op
 from nnschemaparser.parser.lowering.base import LoweringContext
 from nnschemaparser.parser.lowering.errors import UnsupportedSyntaxError
 from nnschemaparser.parser.lowering.naming import RESOLVE_NAMESPACE, resolve_dotted_name
-from nnschemaparser.parser.lowering.runtime_ops import make_list, make_tuple
+from nnschemaparser.parser.lowering.runtime_ops import make_dict, make_list, make_tuple
 
 # The prefix of the parameters of the compiled comprehension helpers
 _COMP_PARAM_PREFIX: str = "__nnviewer_"
@@ -269,6 +269,10 @@ class ExpressionLowering(LoweringContext):
         # A formatted value is lowered to its formatted value
         if isinstance(expr, ast.FormattedValue):
             return self._lower_formatted_value(expr=expr, body=body)
+
+        # A dict display is lowered to a make_dict operation
+        if isinstance(expr, ast.Dict):
+            return self._lower_dict_display(expr=expr, body=body)
 
         # A comprehension is compiled into a helper called at run time
         if isinstance(expr, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
@@ -583,6 +587,51 @@ class ExpressionLowering(LoweringContext):
         )
 
         # Return the reference to the built slice
+        return VarRef(name=out_var)
+
+    def _lower_dict_display(self, expr: ast.Dict, body: list[Instruction]) -> VarRef | Any:
+        """
+        Lower a dict display to a make_dict operation.
+
+        Args:
+            expr (ast.Dict): The dict display expression.
+            body (list[Instruction]): The body to append the instructions to.
+
+        Returns:
+            VarRef | Any: A variable reference to the built dict.
+
+        Raises:
+            UnsupportedSyntaxError: When the display spreads another dict.
+        """
+
+        # The key and the value expressions of the display, in order
+        args: list[VarRef | Any] = []
+        key: ast.expr | None
+        value: ast.expr
+        for key, value in zip(expr.keys, expr.values):
+
+            # The dict spread syntax is not supported
+            if key is None:
+                raise UnsupportedSyntaxError(
+                    "The dict spread syntax is not supported", expr
+                )
+
+            # Lower the key and the value of the entry
+            args.append(self._lower_expr(expr=key, body=body))
+            args.append(self._lower_expr(expr=value, body=body))
+
+        # Emit the dict constructor with the alternating keys and values
+        out_var: str = self._new_temp()
+        self._emit_op(
+            target=make_dict,
+            qualified_name="dict",
+            args=args,
+            kwargs={},
+            out_var=out_var,
+            body=body
+        )
+
+        # Return the reference to the built dict
         return VarRef(name=out_var)
 
     def _lower_sequence(self, expr: ast.Tuple | ast.List, body: list[Instruction]) -> VarRef | Any:
