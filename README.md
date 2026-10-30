@@ -1,5 +1,9 @@
 # NNSchemaParser
 
+[![PyPI](https://img.shields.io/pypi/v/nnschemaparser)](https://pypi.org/project/nnschemaparser/)
+[![Python](https://img.shields.io/pypi/pyversions/nnschemaparser)](https://pypi.org/project/nnschemaparser/)
+[![CI](https://github.com/nath54/NNViewer/actions/workflows/ci.yml/badge.svg)](https://github.com/nath54/NNViewer/actions/workflows/ci.yml)
+
 **NNSchemaParser** converts a PyTorch `nn.Module` into a serializable, inspectable
 graph representation — the **`ModelBlockSchema`** — that keeps the *original variable
 names of the forward source* and *every sub-module* (including MoE experts that a
@@ -94,7 +98,7 @@ body:
 
 The tracer records the same execution chronologically, with the value of
 every intermediate tensor (one line per event, indented by the nesting
-depth) — this is what a WebUI consumes to display every intermediate value:
+depth) — ready for any downstream tool to display the model step by step:
 
 ```
 [00001] ENTER BLOCK MLP
@@ -106,13 +110,34 @@ depth) — this is what a WebUI consumes to display every intermediate value:
 [00007]   hidden = CALL fc1 [Linear]  [torch.float32[2, 256] abs_sum=215.3293 ...]
 ```
 
+## What is supported
+
+- All the usual forward constructs: `if`/`elif`/`else`, `for` (containers,
+  `enumerate`, iterables, tuple targets), `while`, `try`/`except`/`finally`,
+  `continue`/`break`, comprehensions, dict displays, f-strings.
+- Starred arguments in any position (`f(*shape, -1)`), starred sequence
+  displays, `*args`/`**kwargs` signatures and call sites, chained
+  assignments, tuple unpacking, subscript assignments.
+- `super()` calls (zero-argument and explicit), indexed self-calls
+  (`self[0](...)`), explicit `.forward()` calls on sub-blocks, `nn.ModuleDict`
+  runtime dispatch, chained `nn.ModuleList`/`nn.Sequential` calls.
+- **Method schemas** — the other methods a forward delegates to (e.g.
+  `get_image_features`) are parsed too, and executed as schemas.
+- Scalar inputs (`int`/`float`/`bool`/`str`) typed from annotations or
+  example values, with their defaults recorded in the schema.
+- Children whose forward uses unsupported syntax are **skipped and
+  re-dispatched** to the real module — recorded in `schema.skipped`, so the
+  graph always runs and the values always match.
+
 ## Installation
 
 ```bash
-pip install .            # or: pip install -e .[research] for the harness extras
+pip install nnschemaparser            # from PyPI
+pip install .                         # or from a clone
+pip install -e .[research]            # with the sweep harness extras
 ```
 
-Requires Python ≥ 3.12 and PyTorch ≥ 2.0. The model classes must be importable
+Requires Python ≥ 3.10 and PyTorch ≥ 2.0. The model classes must be importable
 from a **real file** (the parser reads the forward source with
 `inspect.getsource`, which fails for classes defined in a REPL or stdin).
 
