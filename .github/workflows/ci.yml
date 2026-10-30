@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install torch (CPU)
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install the package
+        run: pip install -e . pytest
+
+      - name: Run the fixture test suite
+        run: pytest tests/test_new_syntax.py tests/test_parser.py tests/test_methods_and_scalars.py -v
+
+  style:
+    name: Style check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check the line length and the trailing spaces
+        run: |
+          long=$(awk 'length > 100 {print FILENAME": "FNR}' nnschemaparser/*.py nnschemaparser/*/*.py tests/*.py)
+          trail=$(grep -rnE ' +$' nnschemaparser/*.py nnschemaparser/*/*.py tests/*.py || true)
+          if [ -n "$long" ] || [ -n "$trail" ]; then
+            echo "$long$trail"
+            exit 1
+          fi
+          echo "Style OK"

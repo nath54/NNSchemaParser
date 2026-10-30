@@ -3,4 +3,8 @@
 __pycache__
 outputs
 *.egg-info
-.*
+dist
+build
+.next_things_to_do.md
+.code_style.txt
+.code_style.md
