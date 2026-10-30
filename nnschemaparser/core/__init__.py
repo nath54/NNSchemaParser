@@ -2,15 +2,33 @@
 Core data model of NNSchemaParser.
 
 The schema types describing a parsed model: the block schema tree, the tensor
-representations and the instruction types of the block bodies.
+representations, the instruction types of the block bodies and the activation
+and gradient traces of the executions.
 """
 
 # Import Modules
+from nnschemaparser.core.traces import (
+    ActivationTrace,
+    GradientTrace,
+    TensorTrace,
+    TraceStep,
+    format_step
+)
 from nnschemaparser.core.model_schema import ModelBlockSchema
-from nnschemaparser.core.tensor_schema import TensorRepr, TensorReprWithValue
+from nnschemaparser.core.tensor_schema import (
+    TensorContainer,
+    TensorRepr,
+    TensorReprWithValue
+)
 
 __all__ = [
+    "ActivationTrace",
+    "GradientTrace",
     "ModelBlockSchema",
+    "TensorContainer",
     "TensorRepr",
-    "TensorReprWithValue"
+    "TensorReprWithValue",
+    "TensorTrace",
+    "TraceStep",
+    "format_step"
 ]

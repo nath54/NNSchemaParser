@@ -10,6 +10,7 @@ from nnschemaparser import (
     SchemaInterpreter,
     TraceListener,
     TraceRecorder,
+    ActivationRecorder,
     dump_schema,
 )
 ```
@@ -71,6 +72,42 @@ print(tracer.lines)
 
 `TraceRecorder` keeps an indented text trace of the whole execution in its
 `lines` attribute.
+
+## Recording activation and gradient traces
+
+The schema is the static structure; the values of one execution live in a
+separate `ActivationTrace` of `TensorContainer`s keyed by stable container
+ids. The `ActivationRecorder` is a `TraceListener` allocating them:
+
+```python
+from nnschemaparser import SchemaInterpreter, ActivationRecorder
+
+recorder = ActivationRecorder(capture_grads=True)
+outputs = SchemaInterpreter(capture_values=True, listeners=[recorder]).run(
+    block=schema, scope={"x": x.clone().requires_grad_(True)}
+)
+
+for step in recorder.trace.steps:
+    print(step.step, step.description, step.container_id, step.tensor.shape)
+
+loss = outputs[0].pow(2).sum()
+loss.backward()
+gradients = recorder.collect_gradients()   # cross-referenced GradientTrace
+```
+
+- `ActivationTrace.steps` — the chronological `TraceStep` entries: `step`,
+  `container_id` (`"input_0001"`, `"layers_0_0002"`, `"output_0007"`),
+  `description`, `slot_type` (`"input"/"activation"/"output"`), `out_var`,
+  `op_name`, `block_path` and `tensor` (the `TensorContainer` holding the
+  detached value).
+- `collect_gradients()` — to call after a backward pass: returns a
+  `GradientTrace` whose steps mirror the activation steps in the same order,
+  with `container_id = "grad_" + activation id` and `source_container_id`
+  pointing back to the activation step.
+- Both traces provide `by_container(id)` and `save(path)`.
+
+The schema itself is never modified by a run: `instruction.resolved` keeps
+the values of the last capture, while the traces are the per-run history.
 
 ## Dumping a schema
 

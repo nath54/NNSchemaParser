@@ -110,6 +110,184 @@ depth) — ready for any downstream tool to display the model step by step:
 [00007]   hidden = CALL fc1 [Linear]  [torch.float32[2, 256] abs_sum=215.3293 ...]
 ```
 
+## The schema classes in detail
+
+This section documents every class of the schema data model so you can import
+them, walk them and build your own tooling (WebUI, canvas viewer, analysis
+scripts) on top of them. Everything is importable from the package root:
+
+```python
+from nnschemaparser import (
+    ModelBlockSchema, TensorRepr, TensorReprWithValue, TensorContainer,
+    VarRef, BlockRef, OpInstruction, BlockInstruction, ControlInstruction,
+    TryInstruction, ReturnInstruction, ContinueInstruction, BreakInstruction
+)
+```
+
+### Tensor representations
+
+| Class | Fields | Meaning |
+|---|---|---|
+| `TensorRepr` | `shape: tuple[int, ...]`, `dtype: str` | A tensor flowing through the graph, described by its shape and dtype only (e.g. `(2, 16, 768)`, `"torch.float32"`). A non-tensor value gets `shape=()` and `dtype=type(value).__name__` (e.g. `"bool"`). |
+| `TensorReprWithValue` | + `value: torch.Tensor` | A `TensorRepr` holding a **detached snapshot** of the real tensor. Produced by `capture_values=True` runs and by the weight collection. |
+| `TensorContainer` | + `container_id: str`, `slot_type: str` | A captured tensor identified by a **stable unique id** (e.g. `"input_0001"`, `"layers_0_0002"`) and by its role (`"input"`, `"activation"`, `"output"`, `"gradient"`). This is the payload of the traces (see next section). |
+
+### `ModelBlockSchema` — one block of the tree
+
+A parsed model is a **tree of `ModelBlockSchema`**: one block per `nn.Module`,
+each self-contained and independently executable.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `inputs` | `dict[str, TensorRepr]` | The forward parameters, **by name** (the keys are the names you can pass to `SchemaInterpreter.run(scope=...)`). |
+| `outputs` | `list[TensorRepr]` | The values of the `return` statement, in order. |
+| `weights` | `dict[str, TensorReprWithValue]` | The direct `nn.Parameter`s and buffers, by attribute name, snapshotted at parse time (live attributes take precedence at run time). |
+| `sub_blocks` | `dict[str, ModelBlockSchema]` | The child blocks, keyed by attribute path (`"attention"`, `"layers.0"`, `"experts.3"`, ...). Container entries are keyed by `"container.index"`. |
+| `body` | `list[Instruction]` | The lowered forward body — the graph to display. |
+| `module` | `nn.Module \| None` | The live source module, used for weight seeding and dynamic attribute resolution. |
+| `methods` | `dict[str, ModelBlockSchema]` | The other methods of the module called by the forward, parsed as schemas too. |
+| `method_name` | `str \| None` | The parsed method name when the block describes a method instead of the forward. |
+| `input_defaults` | `dict[str, Any]` | The default values of the optional forward parameters. |
+| `skipped` | `dict[str, str]` | The children that could not be parsed, by name with their reason — they are re-dispatched to their real module at run time. |
+
+### Instruction types — the `body` of a block
+
+Every instruction carries:
+
+- **`out_var: str`** — the **original variable name** of the forward source the
+  result is bound to (e.g. `"hidden_states"`), or `""` for instructions that
+  bind nothing (`ControlInstruction`, `TryInstruction`, `ReturnInstruction`,
+  `ContinueInstruction`, `BreakInstruction`). Temporary results created by the
+  lowering get synthetic names like `"$t1"`.
+- **`resolved: TensorRepr \| TensorReprWithValue \| None`** — the shape/dtype of
+  the result, and its **value** after a capture run. This is what a viewer
+  displays on each node.
+
+| Class | Extra fields | Represents |
+|---|---|---|
+| `OpInstruction` | `target`, `qualified_name`, `args`, `kwargs`, `args_var`, `kwargs_var` | A call to a torch op, function, method or operator. `qualified_name` is the display name (`"torch.nn.functional.softmax"`); `args`/`kwargs` hold `VarRef`s or literals; `args_var`/`kwargs_var` name scope variables unpacked as `*args`/`**kwargs`. Operators are lowered to `operator.*` calls. |
+| `BlockInstruction` | `block_ref: BlockRef`, `args`, `kwargs`, `splat_args`, `args_var`, `kwargs_var` | A call to a sub-block. `splat_args=True` means the single argument tuple is unpacked across a container chain (`nn.ModuleList`/`nn.Sequential` semantics). |
+| `ControlInstruction` | `kind: "if"\|"for"\|"while"`, `condition`, `body`, `else_body`, `bind_var`, `iter_container`, `index_var` | An `if`/`elif`/`else` or a loop as a first-class node: `condition` is an `OpInstruction` evaluating the condition (or the iterable), `body`/`else_body` are nested instruction lists. Returns inside them propagate to the caller of the block. |
+| `TryInstruction` | `handlers`, `handler_names`, `final_body` | A `try`/`except Type as name`/`finally`, with the exception classes resolved at lowering time. |
+| `ReturnInstruction` | `out_vars: list[str]` | The names of the returned variables; a single value is returned directly, several as a tuple. |
+| `ContinueInstruction` / `BreakInstruction` | — | Loop control signals; `finally` bodies still run. |
+
+The two reference types used inside instructions:
+
+- **`VarRef(name)`** — a reference to a variable of the current block scope.
+  When you see `VarRef("hidden_states")` in `args`, it means "the value bound
+  to `hidden_states`" — this is how you draw the edges between nodes.
+- **`BlockRef(path, index_var)`** — a reference to a sub-block by attribute
+  path; `index_var` names the scope variable holding the container index or
+  key (dynamic dispatch into `ModuleList`/`ModuleDict`).
+
+### Walking a schema programmatically
+
+```python
+from nnschemaparser import SchemaInterpreter, BlockInstruction, ControlInstruction
+
+# 1. Run with capture to fill instruction.resolved with the values
+outputs = SchemaInterpreter(capture_values=True).run(block=schema, scope={"x": x})
+
+# 2. Walk the instructions of a block: each one is a node of your canvas
+def walk(block, depth=0):
+    for instruction in block.body:
+        resolved = instruction.resolved
+        shape = resolved.shape if resolved else None
+        print("  " * depth, instruction.out_var, type(instruction).__name__, shape)
+        # A BlockInstruction nests the sub-block it calls: the schema comes
+        # from block.sub_blocks[instruction.block_ref.path], or directly from
+        # the loop variable for container iteration
+        # A ControlInstruction nests its two branches: instruction.body and
+        # instruction.else_body are instruction lists, recurse on them too
+
+walk(schema)
+```
+
+A `ControlInstruction` is a compound node: render its `body` and `else_body`
+as the two branches of a diamond, nested recursively. A `BlockInstruction` is
+a compound node too: its `block_ref.path` keys into `block.sub_blocks` (or the
+loop variable holds the sub-block schema directly for container iteration).
+
+## Activation & gradient traces
+
+The schema is the **static** structure: parse it once, keep it forever. The
+**values** of an execution live in separate, disposable artifacts — the
+traces — so one schema can serve any number of runs (one per input sample).
+
+Every captured tensor becomes a **`TensorContainer`** with a stable id and a
+slot type, and the **`ActivationRecorder`** (a `TraceListener`) allocates them
+chronologically into an **`ActivationTrace`**:
+
+```python
+from nnschemaparser import NNParser, SchemaInterpreter, ActivationRecorder
+
+schema = NNParser.parse_model(model=model, inputs_tensors_shapes={"x": (2, 16)})
+
+recorder = ActivationRecorder(capture_grads=True)   # grads: see below
+outputs = SchemaInterpreter(capture_values=True, listeners=[recorder]).run(
+    block=schema, scope={"x": x.clone().requires_grad_(True)}
+)
+
+trace = recorder.trace
+for step in trace.steps:
+    print(step.step, step.description, step.container_id, step.tensor.shape)
+```
+
+The trace of the MLP example reads exactly as you would draw it on a canvas:
+
+```
+step 0001: Initial input tensor | container_id: input_0001 | torch.float32[2, 16] | var: x
+step 0002: Linear projection | container_id: fc1_0002 | torch.float32[2, 32] | var: $t1 | block: fc1
+step 0003: Call to sub-block fc1 (Linear) | container_id: MLP_0003 | torch.float32[2, 32] | var: hidden | block: MLP
+step 0004: ReLU activation | container_id: MLP_0004 | torch.float32[2, 32] | var: activated | block: MLP
+step 0005: Linear projection | container_id: fc2_0005 | torch.float32[2, 8] | var: $t1 | block: fc2
+step 0006: Call to sub-block fc2 (Linear) | container_id: MLP_0006 | torch.float32[2, 8] | var: $t2 | block: MLP
+step 0007: Model output tensor | container_id: output_0007 | torch.float32[2, 8] | var: $t2 | block: MLP
+```
+
+Each `TraceStep` holds:
+
+| Field | Meaning |
+|---|---|
+| `step` | The 1-based chronological step number. |
+| `container_id` | The stable id of the tensor (`"input_0001"`, `"{block_path}_{step}"` with dots replaced by underscores, `"output_0007"`). |
+| `description` | A human readable description (`"Initial input tensor"`, `"Tensor multiplication"`, `"Call to sub-block fc1 (Linear)"`, ...). |
+| `slot_type` | `"input"`, `"activation"`, `"output"` or `"gradient"`. |
+| `out_var` | The original variable name of the forward source. |
+| `op_name` | The qualified name of the producing op, or the called sub-block path. |
+| `block_path` | The attribute path of the block that produced the tensor — join it with the schema tree to attach values to nodes. |
+| `tensor` | The `TensorContainer` itself (shape, dtype, detached value). |
+| `source_container_id` | Gradient steps only: the activation container id the gradient belongs to. |
+
+`ActivationTrace` (and `GradientTrace`) also provide `by_container(id)` and
+`save(path)` (one formatted line per step, as shown above).
+
+### Gradients
+
+The interpreter re-dispatches to the real torch callables, so an interpreted
+run **builds a real autograd graph**. With `ActivationRecorder(capture_grads=True)`,
+the recorder calls `retain_grad()` on every captured tensor; after a backward
+pass, `collect_gradients()` returns the cross-referenced `GradientTrace`:
+
+```python
+loss = outputs[0].pow(2).sum()      # your loss, from the interpreter outputs
+loss.backward()
+
+gradients = recorder.collect_gradients()   # after the backward pass
+for step in gradients.steps:
+    print(step.container_id, "<-", step.source_container_id,
+          step.tensor.value.abs().mean().item())
+```
+
+The gradient steps **mirror the activation steps in the same order**: the
+container id of a gradient step is its activation id prefixed with `grad_`
+(e.g. `grad_MLP_0004`) and `source_container_id` points back to the activation
+step — so a viewer can draw the activation and the gradient of a node
+side by side, keyed by the same id. The schema itself is never modified by a
+run: `instruction.resolved` keeps the values of the last capture, while the
+traces remain the per-run history.
+
 ## What is supported
 
 - All the usual forward constructs: `if`/`elif`/`else`, `for` (containers,
@@ -154,6 +332,11 @@ matrix and the sweep CLI.
 
 - **[docs/API.md](docs/API.md)** — the public API: parsing, executing,
   tracing, dumping and walking schemas.
+- **The schema classes in detail** (above) — every class of the schema data
+  model, field by field, for building your own tooling on top.
+- **Activation & gradient traces** (above) — the `TensorContainer`,
+  `ActivationTrace`, `GradientTrace` and `ActivationRecorder` classes for the
+  per-run value capture keyed by stable container ids.
 - **[docs/DOCUMENTATION.md](docs/DOCUMENTATION.md)** — full documentation:
   how the parser works, the schema and instruction reference, the
   interpreter, usage recipes, supported syntax, supported/unsupported

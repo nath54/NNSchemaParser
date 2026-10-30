@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Activation & gradient traces** — `TensorContainer` (a captured tensor
+  identified by a stable `container_id` and a `slot_type`), `TraceStep`,
+  `ActivationTrace` and `GradientTrace` alongside the `ModelBlockSchema`, and
+  the `ActivationRecorder` `TraceListener` allocating them chronologically
+  (`step 0001: Initial input tensor — container_id: input_0001`, ...). With
+  `capture_grads=True`, `collect_gradients()` returns the backward gradients
+  of the recorded activations after a `loss.backward()`, cross-referenced by
+  `source_container_id`. The schema instructions keep their
+  `capture_values=True` capture unchanged.
+
 ## [0.1.0] — 2025
 
 Initial release.
