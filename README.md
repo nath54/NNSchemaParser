@@ -9,11 +9,15 @@ names of the forward source* and *every sub-module* (including MoE experts that 
 single trace would never visit). The schema can then be executed by a built-in
 **schema interpreter** that re-dispatches every recorded call to the real torch
 callables, so the graph runs exactly like the model — and can optionally capture
-the value of every intermediate tensor.
+the value of every intermediate tensor, run **step by step**, **edit tensors
+mid-run**, and **compare two runs** diff by diff.
 
 ```
-   nn.Module  ──parse──►  ModelBlockSchema  ──interpret──►  outputs / captured values
-  (your code)              (names + graph)                   (identical to model(x))
+   nn.Module ──parse──► ModelBlockSchema ──interpret──► outputs / captured values
+ (your code)             (names + graph)                 (identical to model(x))
+                                                ──step_run──► StepInfo stream + scope edits
+                                                ──capture_run──► ActivationTrace + GradientTrace
+                                                ──compare_traces──► per-step diffs of two runs
 ```
 
 ## Why not `torch.fx`?
@@ -258,6 +262,7 @@ Each `TraceStep` holds:
 | `block_path` | The attribute path of the block that produced the tensor — join it with the schema tree to attach values to nodes. |
 | `tensor` | The `TensorContainer` itself (shape, dtype, detached value). |
 | `source_container_id` | Gradient steps only: the activation container id the gradient belongs to. |
+| `frame_depth` | The depth of the scope frame holding the variable of the step (0 = the root block scope, 1 = a sub-block body, ...) — where a mid-run edit must be applied. |
 
 `ActivationTrace` (and `GradientTrace`) also provide `by_container(id)` and
 `save(path)` (one formatted line per step, as shown above).
@@ -384,15 +389,20 @@ matrix and the sweep CLI.
 - **Activation & gradient traces** (above) — the `TensorContainer`,
   `ActivationTrace`, `GradientTrace` and `ActivationRecorder` classes for the
   per-run value capture keyed by stable container ids.
+- **Stepped runs, edits and trace comparison** (above) — the `StepInfo`,
+  `ExecutionRecord`, `capture_run`, `compare_traces` and `diff_summary`
+  execution-control API of the 0.3.0 release.
 - **[docs/DOCUMENTATION.md](docs/DOCUMENTATION.md)** — full documentation:
   how the parser works, the schema and instruction reference, the
   interpreter, usage recipes, supported syntax, supported/unsupported
   models, and limitations.
 - **[CHANGELOG.md](CHANGELOG.md)** — the release history.
 - `tests/hf_sweep.py` — the validation harness CLI (58 HuggingFace models).
-- `tests/test_new_syntax.py`, `tests/test_parser.py`,
+- `tests/test_parser.py`, `tests/test_new_syntax.py`,
   `tests/test_methods_and_scalars.py` — the fixture test suite (pytest,
   no network needed), also runnable with `python -m tests.test_new_syntax`.
+- `tests/test_traces.py`, `tests/test_capture.py`, `tests/test_stepping.py`,
+  `tests/test_diff.py` — the traces and execution control tests (offline).
 - `tests/test_speech_models.py` — the espnet/torchaudio regression tests.
 
 ## License
