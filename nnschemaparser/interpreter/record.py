@@ -23,6 +23,7 @@ from nnschemaparser.core.instructions import (
 )
 from nnschemaparser.core.model_schema import ModelBlockSchema
 from nnschemaparser.core.tensor_schema import TensorContainer
+from nnschemaparser.interpreter.interpreter import SchemaInterpreter
 from nnschemaparser.interpreter.tracer import TraceListener
 
 
@@ -411,7 +412,6 @@ class ActivationRecorder(TraceListener):
             out_var=instruction.out_var,
             op_name=instruction.block_ref.path
         )
-
     def collect_gradients(self) -> GradientTrace:
         """
         Build the gradient trace of the last recorded forward pass.
@@ -472,3 +472,124 @@ class ActivationRecorder(TraceListener):
 
         # The cross-referenced gradient trace
         return trace
+
+
+class ExecutionRecord:
+    """
+    The record of one captured execution of a schema.
+
+    An execution record bundles the outputs of a SchemaInterpreter.run, the
+    ActivationTrace of its ActivationRecorder and the mutated scope of the
+    run. The GradientTrace of the run is built lazily by the gradients
+    property once the caller has run the backward pass of its loss.
+    """
+
+    def __init__(
+        self,
+        outputs: list[Any],
+        trace: ActivationTrace,
+        recorder: "ActivationRecorder",
+        scope: dict[str, Any]
+    ) -> None:
+        """
+        Init function.
+
+        Args:
+            outputs (list[Any]): The values returned by the executed block.
+            trace (ActivationTrace): The activation trace of the run.
+            recorder (ActivationRecorder): The recorder of the run, kept for
+                the lazy gradient collection.
+            scope (dict[str, Any]): The final scope of the run, mutated in
+                place during the execution.
+        """
+
+        # Store here the outputs of the executed block
+        self.outputs: list[Any] = outputs
+
+        # Store here the activation trace of the run
+        self.trace: ActivationTrace = trace
+
+        # Store here the final scope of the run
+        self.scope: dict[str, Any] = scope
+
+        # Store here the recorder of the run for the gradient collection
+        self._recorder: ActivationRecorder = recorder
+
+        # The cache of the lazily built gradient trace
+        self._gradients: GradientTrace | None = None
+
+    @property
+    def gradients(self) -> GradientTrace:
+        """
+        Get the gradient trace of the run, built lazily.
+
+        The property must be read after the backward pass of a loss
+        computed from the outputs of the run (with capture_grads=True at
+        the capture_run call). The gradient steps mirror the activation
+        steps in the same order, cross-referenced by their source container
+        ids. The trace is built once and cached; it is empty when the
+        backward pass has not been run or no tensor required grad.
+
+        Returns:
+            GradientTrace: The gradient trace of the run.
+        """
+
+        # Build the gradient trace on the first read after a backward; an
+        # empty build is not cached so a backward run later is still seen
+        if self._gradients is None:
+            gradients: GradientTrace = self._recorder.collect_gradients()
+            if gradients.steps:
+                self._gradients = gradients
+            return gradients
+        return self._gradients
+
+
+def capture_run(
+    block: ModelBlockSchema,
+    scope: dict[str, Any],
+    capture_grads: bool = False,
+    listeners: list[TraceListener] | None = None
+) -> ExecutionRecord:
+    """
+    Execute a block schema with the capture of every intermediate tensor.
+
+    This is the convenience entry point of the capture workflow: it creates
+    the ActivationRecorder, runs a capture_values interpreter with it and
+    returns the ExecutionRecord bundling the outputs, the activation trace
+    and the lazily collected gradient trace. The scope is mutated in place
+    like for the run method of the interpreter.
+
+    Args:
+        block (ModelBlockSchema): The block schema to execute.
+        scope (dict[str, Any]): The initial variables of the block (its
+            inputs), mutated in place during the execution.
+        capture_grads (bool): When True, the live tensors are retained for
+            the gradient collection after a backward pass.
+        listeners (list[TraceListener] | None): The optional extra listeners
+            notified of the events of the run.
+
+    Returns:
+        ExecutionRecord: The record of the captured execution.
+    """
+
+    # The recorder of the capture run
+    recorder: ActivationRecorder = ActivationRecorder(capture_grads=capture_grads)
+
+    # The interpreter of the capture, with the recorder first so the traces
+    # are built before the other listeners observe the same events
+    all_listeners: list[TraceListener] = [recorder, *(listeners or [])]
+    interpreter: SchemaInterpreter = SchemaInterpreter(
+        capture_values=True,
+        listeners=all_listeners
+    )
+
+    # The execution of the block schema
+    outputs: list[Any] = interpreter.run(block=block, scope=scope)
+
+    # The record of the captured execution
+    return ExecutionRecord(
+        outputs=outputs,
+        trace=recorder.trace,
+        recorder=recorder,
+        scope=scope
+    )

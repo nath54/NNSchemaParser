@@ -34,10 +34,12 @@ from nnschemaparser.core.instructions import (
 from nnschemaparser.dump import dump_schema
 from nnschemaparser.interpreter import (
     ActivationRecorder,
+    ExecutionRecord,
     SchemaInterpreter,
     StepInfo,
     TraceListener,
-    TraceRecorder
+    TraceRecorder,
+    capture_run
 )
 from nnschemaparser.parser import NNParser
 
@@ -49,6 +51,7 @@ __all__ = [
     "BreakInstruction",
     "ContinueInstruction",
     "ControlInstruction",
+    "ExecutionRecord",
     "GradientTrace",
     "Instruction",
     "ModelBlockSchema",
@@ -66,6 +69,7 @@ __all__ = [
     "TraceStep",
     "TryInstruction",
     "VarRef",
+    "capture_run",
     "dump_schema",
     "format_step"
 ]
