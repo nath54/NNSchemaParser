@@ -222,6 +222,9 @@ class ActivationRecorder(TraceListener):
             else (block_path.replace(".", "_") or "tensor")
         container_id: str = f"{prefix}_{step_number:04d}"
 
+        # The depth of the scope frame holding the variable of the capture
+        frame_depth: int = max(0, len(self._stack) - 1)
+
         # The container holding the detached snapshot of the tensor
         container: TensorContainer = TensorContainer(
             shape=tuple(int(dim) for dim in value.shape),
@@ -240,7 +243,8 @@ class ActivationRecorder(TraceListener):
             out_var=out_var,
             op_name=op_name,
             block_path=block_path,
-            tensor=container
+            tensor=container,
+            frame_depth=frame_depth
         )
         self.trace.steps.append(step)
 
@@ -262,6 +266,10 @@ class ActivationRecorder(TraceListener):
             scope (dict[str, Any]): The scope of the block execution.
         """
 
+        # Push the block with its attribute path on the stack, before the
+        # inputs are recorded so their frame depth is the root frame depth
+        self._stack.append((block, self._block_path(block=block)))
+
         # The inputs of the root block open the trace
         if self._depth == 0:
             input_name: str
@@ -276,8 +284,6 @@ class ActivationRecorder(TraceListener):
                         op_name="input"
                     )
 
-        # Push the block with its attribute path on the stack
-        self._stack.append((block, self._block_path(block=block)))
         self._depth += 1
 
     def on_block_exit(self, block: ModelBlockSchema, result: list[Any]) -> None:

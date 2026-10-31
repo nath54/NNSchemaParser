@@ -63,6 +63,14 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
         # Store here the listeners of the interpreter events
         self.listeners: list[TraceListener] = listeners or []
 
+        # The stack of the executed block scopes, the innermost frame last.
+        # Maintained by run() so the step hooks and the consumers can locate
+        # the frame depth of any variable of the execution
+        self._scope_stack: list[dict[str, Any]] = []
+
+        # The counter of the published instruction steps of the executions
+        self._step_counter: int = 0
+
     def run(self, block: ModelBlockSchema, scope: dict[str, Any]) -> list[Any]:
         """
         Execute the body of a block schema.
@@ -90,28 +98,36 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
         # Resolve the placeholder representations of the block inputs
         self._resolve_block_inputs(block=block, scope=scope)
 
-        # Notify the listeners of the block entry
-        self._notify_block_enter(block=block, scope=scope)
+        # Push the scope of the block on the frame stack for the whole run
+        self._scope_stack.append(scope)
+        try:
 
-        # Execute all the instructions of the block body in order
-        instruction: Instruction
-        for instruction in block.body:
+            # Notify the listeners of the block entry
+            self._notify_block_enter(block=block, scope=scope)
 
-            # Execute the current instruction of the block body
-            result: list[Any] | None = self._execute_instruction(
-                instruction=instruction,
-                block=block,
-                scope=scope
-            )
+            # Execute all the instructions of the block body in order
+            instruction: Instruction
+            for instruction in block.body:
 
-            # A returned result stops the execution of the block
-            if result is not None:
-                self._notify_block_exit(block=block, result=result)
-                return result
+                # Execute the current instruction of the block body
+                result: list[Any] | None = self._execute_instruction(
+                    instruction=instruction,
+                    block=block,
+                    scope=scope
+                )
 
-        # If no return instruction was found, the block returns nothing
-        self._notify_block_exit(block=block, result=[])
-        return []
+                # A returned result stops the execution of the block
+                if result is not None:
+                    self._notify_block_exit(block=block, result=result)
+                    return result
+
+            # If no return instruction was found, the block returns nothing
+            self._notify_block_exit(block=block, result=[])
+            return []
+        finally:
+
+            # Pop the scope frame of the block whatever the outcome
+            self._scope_stack.pop()
 
     def _notify_block_enter(self, block: ModelBlockSchema, scope: dict[str, Any]) -> None:
         """

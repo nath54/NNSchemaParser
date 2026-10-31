@@ -35,7 +35,8 @@ class TraceStep:
         op_name: str,
         block_path: str,
         tensor: TensorContainer,
-        source_container_id: str | None = None
+        source_container_id: str | None = None,
+        frame_depth: int = 0
     ) -> None:
         """
         Init function.
@@ -58,6 +59,8 @@ class TraceStep:
             tensor (TensorContainer): The captured tensor itself.
             source_container_id (str | None): For gradient steps, the
                 container id of the activation step the gradient belongs to.
+            frame_depth (int): The depth of the scope frame holding the
+                variable of the step, 0 being the root block scope.
         """
 
         # Store here the chronological step number of the capture
@@ -86,6 +89,9 @@ class TraceStep:
 
         # Store here the activation container id of a gradient step
         self.source_container_id: str | None = source_container_id
+
+        # Store here the depth of the scope frame holding the variable
+        self.frame_depth: int = frame_depth
 
 
 def format_step(step: TraceStep) -> str:
