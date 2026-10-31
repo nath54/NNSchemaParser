@@ -19,6 +19,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sub_block_call_sites()` for the methods parsed as schemas: the top level
   body indices of their calls on self.
 
+## [0.3.1] — 2026-11-02
+
+### Added
+
+- **Canvas positioning helpers** — `ModelBlockSchema.sub_block_call_sites()`
+  returns the top level body indices where each sub-block path is called
+  (calls nested in branches or loops anchor at their outermost enclosing
+  instruction; a container iteration is one static call site), so a viewer
+  can place a sub-block box between its call sites or at their balanced
+  position when there are several.
+- **Instruction dependencies** — `instruction_dependencies(block)` resolves,
+  for every instruction of a block body, the variables it reads into
+  `Dependency` entries (`input`, `weight`, `self`, `instruction` or
+  `unresolved`) keyed by nested instruction paths (`"3"`, `"5/body/0"`,
+  `"5/condition"`, ...), pointing to the last earlier instruction binding
+  each variable — the dataflow edge list of a canvas.
+- **Method call sites** — `method_call_sites(block)` mirrors
+  `sub_block_call_sites()` for the methods parsed as schemas: the top level
+  body indices of their calls on self.
+
 ## [0.3.0] — 2026-10-30
 
 ### Added

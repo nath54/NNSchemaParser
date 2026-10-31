@@ -384,6 +384,10 @@ matrix and the sweep CLI.
 
 - **[docs/API.md](docs/API.md)** — the public API: parsing, executing,
   tracing, dumping and walking schemas.
+- **Graph analysis helpers** (above and in the API reference) —
+  `sub_block_call_sites()`, `method_call_sites()` and
+  `instruction_dependencies()` give the call anchors and the dataflow edges
+  of a body for canvas positioning.
 - **The schema classes in detail** (above) — every class of the schema data
   model, field by field, for building your own tooling on top.
 - **Activation & gradient traces** (above) — the `TensorContainer`,

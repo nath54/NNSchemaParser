@@ -163,6 +163,33 @@ Each `TraceDiff` carries `container_id_a`/`container_id_b`, `status`
 block path, variable name and operation name), and `max_abs_diff`,
 `mean_abs_diff`, `changed` when the captured values are comparable.
 
+## Canvas positioning: call sites and dependencies
+
+```python
+from nnschemaparser import instruction_dependencies, method_call_sites
+
+# Where each sub-block / parsed method is called in the top level body
+schema.sub_block_call_sites()   # {"fc1": [0], "experts": [3], ...}
+method_call_sites(block=schema) # {"helper": [2, 4], ...}
+
+# The dataflow edges: variables read by each instruction, resolved to
+# their source (input, weight, $self, or the path of the last writer)
+deps = instruction_dependencies(block=schema)
+# {"0": [Dependency(input:x)], "5": [Dependency(instruction:0), ...], ...}
+```
+
+- Call sites anchor at the outermost enclosing instruction for calls nested
+  in branches or loops; a container iteration is one static call site of
+  the container path. A sub-block called several times is positioned at the
+  balanced location of its anchors (mean or median of the indices).
+- Instruction paths encode the nesting: top level by index (`"3"`), nested
+  bodies as `{parent}/body/{i}`, `{parent}/else/{i}`,
+  `{parent}/handlers/{h}/{i}`, `{parent}/finally/{i}` and the condition of
+  a control flow as `{parent}/condition`.
+- A `Dependency` carries `name` (the source variable), `kind` (`"input"`,
+  `"weight"`, `"self"`, `"instruction"`, `"unresolved"`) and `origin` (the
+  input/weight name, `$self`, or the last writer path).
+
 ## Dumping a schema
 
 ```python
