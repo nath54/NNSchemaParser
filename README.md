@@ -2,7 +2,6 @@
 
 [![PyPI](https://img.shields.io/pypi/v/nnschemaparser)](https://pypi.org/project/nnschemaparser/)
 [![Python](https://img.shields.io/pypi/pyversions/nnschemaparser)](https://pypi.org/project/nnschemaparser/)
-[![CI](https://github.com/nath54/NNViewer/actions/workflows/ci.yml/badge.svg)](https://github.com/nath54/NNViewer/actions/workflows/ci.yml)
 
 **NNSchemaParser** converts a PyTorch `nn.Module` into a serializable, inspectable
 graph representation — the **`ModelBlockSchema`** — that keeps the *original variable
