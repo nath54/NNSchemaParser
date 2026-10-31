@@ -9,6 +9,9 @@ callables.
 
 # Import Modules
 from nnschemaparser.core import (
+    TraceDiff,
+    compare_traces,
+    diff_summary,
     ActivationTrace,
     GradientTrace,
     ModelBlockSchema,
@@ -66,10 +69,13 @@ __all__ = [
     "TensorTrace",
     "TraceListener",
     "TraceRecorder",
+    "TraceDiff",
     "TraceStep",
     "TryInstruction",
     "VarRef",
     "capture_run",
+    "compare_traces",
+    "diff_summary",
     "dump_schema",
     "format_step"
 ]
