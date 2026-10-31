@@ -7,6 +7,11 @@ and gradient traces of the executions.
 """
 
 # Import Modules
+from nnschemaparser.core.dependencies import (
+    Dependency,
+    instruction_dependencies,
+    method_call_sites
+)
 from nnschemaparser.core.diff import TraceDiff, compare_traces, diff_summary
 from nnschemaparser.core.traces import (
     ActivationTrace,
@@ -24,6 +29,7 @@ from nnschemaparser.core.tensor_schema import (
 
 __all__ = [
     "ActivationTrace",
+    "Dependency",
     "GradientTrace",
     "ModelBlockSchema",
     "TensorContainer",
@@ -33,6 +39,8 @@ __all__ = [
     "TraceDiff",
     "TraceStep",
     "compare_traces",
+    "instruction_dependencies",
+    "method_call_sites",
     "diff_summary",
     "format_step"
 ]

@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Instruction dependencies** — `instruction_dependencies(block)` resolves,
+  for every instruction of a block body, the variables it reads into
+  `Dependency` entries (`input`, `weight`, `self`, `instruction` or
+  `unresolved`) keyed by nested instruction paths (`"3"`, `"5/body/0"`,
+  `"5/condition"`, ...), pointing to the last earlier instruction binding
+  each variable.
+- **Method call sites** — `method_call_sites(block)` mirrors
+  `sub_block_call_sites()` for the methods parsed as schemas: the top level
+  body indices of their calls on self.
+
 ## [0.3.0] — 2026-10-30
 
 ### Added

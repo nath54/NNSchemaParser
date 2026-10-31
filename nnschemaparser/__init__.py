@@ -9,9 +9,12 @@ callables.
 
 # Import Modules
 from nnschemaparser.core import (
+    Dependency,
     TraceDiff,
     compare_traces,
     diff_summary,
+    instruction_dependencies,
+    method_call_sites,
     ActivationTrace,
     GradientTrace,
     ModelBlockSchema,
@@ -54,6 +57,7 @@ __all__ = [
     "BreakInstruction",
     "ContinueInstruction",
     "ControlInstruction",
+    "Dependency",
     "ExecutionRecord",
     "GradientTrace",
     "Instruction",
@@ -75,6 +79,8 @@ __all__ = [
     "VarRef",
     "capture_run",
     "compare_traces",
+    "instruction_dependencies",
+    "method_call_sites",
     "diff_summary",
     "dump_schema",
     "format_step"
