@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nnschemaparser"
-version = "0.2.0"
+version = "0.3.0"
 description = "Parse torch nn.Module models into an inspectable ModelBlockSchema graph and execute it with a faithful schema interpreter"
 readme = "README.md"
 license = { file = "LICENSE" }

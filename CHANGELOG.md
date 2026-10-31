@@ -5,6 +5,32 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-10-30
+
+### Added
+
+- **Frame-depth bookkeeping** — the interpreter maintains the stack of the
+  executed block scopes, and `TraceStep` gains an optional `frame_depth`
+  (0 = root block scope) filled by the `ActivationRecorder`, so consumers can
+  locate the scope frame holding any `out_var`.
+- **Stepped execution** — `SchemaInterpreter.step_run()`, a synchronous
+  generator yielding one `StepInfo` per executed instruction in program order
+  (per-iteration steps for loop bodies, nested sub-blocks included), returning
+  the outputs and mutating the scope in place. `StepInfo` carries the step
+  index, kind, variable name, op name, live scope frames and frame depth.
+- **Scope edits** — `StepInfo.edit(values, shape, dtype, frame_depth,
+  out_var)` patches a scope frame before the next instruction (mid-run tensor
+  editing); in generator mode the edit is applied race-free by the worker
+  thread, and the raw `interpreter.step_hook` mode applies it immediately.
+  Abandoning the generator unwinds the run; the interpreter stays reusable.
+- **`capture_run()` and `ExecutionRecord`** — the one-call capture workflow
+  bundling the outputs, the `ActivationTrace`, the final scope and a lazily
+  cached `gradients` property.
+- **`compare_traces()` and `TraceDiff`** — alignment of two traces by
+  container id with a role fallback surviving control-path changes, per-step
+  statuses (`ok`, `shape_changed`, `value_unavailable`, `only_in_a`,
+  `only_in_b`) and max/mean absolute differences; `diff_summary` counts them.
+
 ## [0.2.0] — 2026-10-30
 
 ### Added

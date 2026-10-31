@@ -288,6 +288,54 @@ side by side, keyed by the same id. The schema itself is never modified by a
 run: `instruction.resolved` keeps the values of the last capture, while the
 traces remain the per-run history.
 
+## Stepped runs, edits and trace comparison (0.3.0)
+
+The interpreter can also be driven **instruction by instruction**, and the
+scope can be **edited mid-run** — the base of interactive viewers, debuggers
+and counterfactual analyses:
+
+```python
+from nnschemaparser import SchemaInterpreter
+
+interpreter = SchemaInterpreter(capture_values=True)
+
+# Step mode: one StepInfo per executed instruction, in program order
+for step in interpreter.step_run(block=schema, scope={"x": x}):
+    print(step.step_index, step.kind, step.out_var, step.frame_depth)
+
+    # Edit a scope frame before the next instruction (here: the tensor the
+    # step just bound, at its own frame depth)
+    if step.out_var == "activated":
+        step.edit(values=torch.zeros_like(step.value))
+outputs = interpreter.step_outputs   # also the generator return value
+```
+
+Each `StepInfo` exposes the live `scope_frames` of the execution and its
+`frame_depth` (0 = root block), so an edit can target any visible variable:
+`step.edit(values, shape, dtype, frame_depth=0, out_var="x")`. The stream is
+deterministic for a schema, input and control path, which makes `step_index`
+a stable fork key: re-running with an edit queued at step *N* replays the
+prefix and diverges after it. Condition expressions of `if`/`while`
+re-evaluations are not stepped; abandoning the generator unwinds the run.
+
+The one-call capture workflow bundles everything:
+
+```python
+record = capture_run(block=schema, scope={"x": x}, capture_grads=True)
+# record.outputs, record.trace (ActivationTrace), record.scope
+loss = record.outputs[0].pow(2).sum(); loss.backward()
+gradients = record.gradients            # the cross-referenced GradientTrace
+```
+
+And two runs are compared step by step — the diffs are aligned by container
+id, with a role fallback surviving control-path changes:
+
+```python
+diffs = compare_traces(trace_a=base_record.trace, trace_b=fork_trace, atol=1e-6)
+# each TraceDiff: status ("ok", "shape_changed", "only_in_a"/"only_in_b"),
+# max_abs_diff, mean_abs_diff, changed; diff_summary(diffs) counts them
+```
+
 ## What is supported
 
 - All the usual forward constructs: `if`/`elif`/`else`, `for` (containers,
