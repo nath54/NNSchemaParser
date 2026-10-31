@@ -8,7 +8,14 @@ outputs, weights, sub-blocks and the instruction list of its forward body.
 # Import Modules
 from typing import Any
 
-from nnschemaparser.core.instructions import Instruction
+from typing import Any
+
+from nnschemaparser.core.instructions import (
+    BlockInstruction,
+    ControlInstruction,
+    Instruction,
+    TryInstruction
+)
 from nnschemaparser.core.tensor_schema import TensorRepr, TensorReprWithValue
 
 
@@ -92,3 +99,96 @@ class ModelBlockSchema:
 
         # Store here the name of the described method, if not the forward
         self.method_name: str | None = method_name
+
+    def sub_block_call_sites(self) -> dict[str, list[int]]:
+        """
+        Get the body indices where each sub-block of the block is called.
+
+        The keys are the block reference paths of the body call sites: the
+        attribute name of a direct sub-block (e.g. "attention"), the
+        container path of a ModuleList or ModuleDict iteration (e.g.
+        "experts", one static call site for the whole container whatever
+        the number of its runtime iterations) or "$self" for an indexed
+        self call. The values are the sorted indices of the calls in the
+        top level body of the block: a call nested in a control flow or
+        try body is reported at the index of its outermost enclosing
+        instruction, which is the anchor of the call in a linear layout of
+        the body operations.
+
+        Returns:
+            dict[str, list[int]]: The call site indices of each referenced
+            sub-block path, in body order.
+        """
+
+        # One entry per referenced path, filled by the recursive walk
+        sites: dict[str, list[int]] = {}
+
+        # The top level instructions are their own enclosing indices
+        index: int
+        instruction: Instruction
+        for index, instruction in enumerate(self.body):
+            _collect_call_sites(
+                instructions=[instruction],
+                top_index=index,
+                sites=sites
+            )
+        return sites
+
+
+def _collect_call_sites(
+    instructions: list[Instruction],
+    top_index: int,
+    sites: dict[str, list[int]]
+) -> None:
+    """
+    Collect the sub-block call sites of a list of instructions.
+
+    Args:
+        instructions (list[Instruction]): The instructions to walk.
+        top_index (int): The top level body index reported for the call
+            sites found in the instructions.
+        sites (dict[str, list[int]]): The call sites to fill, by referenced
+            sub-block path.
+    """
+
+    # Walk the instructions, recursing into the nested bodies
+    instruction: Instruction
+    for instruction in instructions:
+
+        # A block call is a call site of its referenced sub-block
+        if isinstance(instruction, BlockInstruction):
+            sites.setdefault(instruction.block_ref.path, []).append(top_index)
+
+        # The control flow bodies nest their own call sites
+        elif isinstance(instruction, ControlInstruction):
+            _collect_call_sites(
+                instructions=instruction.body,
+                top_index=top_index,
+                sites=sites
+            )
+            _collect_call_sites(
+                instructions=instruction.else_body,
+                top_index=top_index,
+                sites=sites
+            )
+
+        # The try bodies nest their own call sites
+        elif isinstance(instruction, TryInstruction):
+            _collect_call_sites(
+                instructions=instruction.body,
+                top_index=top_index,
+                sites=sites
+            )
+            handler_types: tuple[type[BaseException], ...]
+            handler_body: list[Instruction]
+            for handler_types, handler_body in instruction.handlers:
+                _collect_call_sites(
+                    instructions=handler_body,
+                    top_index=top_index,
+                    sites=sites
+                )
+            _collect_call_sites(
+                instructions=instruction.final_body,
+                top_index=top_index,
+                sites=sites
+            )
