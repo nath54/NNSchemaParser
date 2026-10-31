@@ -35,6 +35,7 @@ from nnschemaparser.dump import dump_schema
 from nnschemaparser.interpreter import (
     ActivationRecorder,
     SchemaInterpreter,
+    StepInfo,
     TraceListener,
     TraceRecorder
 )
@@ -55,6 +56,7 @@ __all__ = [
     "OpInstruction",
     "ReturnInstruction",
     "SchemaInterpreter",
+    "StepInfo",
     "TensorContainer",
     "TensorRepr",
     "TensorReprWithValue",

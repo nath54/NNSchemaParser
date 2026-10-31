@@ -10,9 +10,13 @@ two modes:
 """
 
 # Import Modules
-from typing import Any
+from typing import Any, Callable, Generator
 
 import inspect
+import queue
+import threading
+
+from torch import Tensor
 
 from nnschemaparser.core.model_schema import ModelBlockSchema
 from nnschemaparser.forward import resolve_forward
@@ -29,6 +33,7 @@ from nnschemaparser.core.instructions import (
     VarRef
 )
 from nnschemaparser.interpreter.tracer import TraceListener
+from nnschemaparser.interpreter.stepping import StepInfo, _Stepper, make_step_info
 from nnschemaparser.interpreter.control_flow import (
     ControlFlowExecutor,
     _LoopBreak,
@@ -70,6 +75,16 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
 
         # The counter of the published instruction steps of the executions
         self._step_counter: int = 0
+
+        # The optional raw hook called after each executed instruction (and
+        # before the body of the control flow and try instructions). The
+        # hook may mutate the scope frames of the yielded StepInfo for a
+        # mid-run effect, and must not run the interpreter recursively
+        self.step_hook: Callable[[StepInfo], None] | None = None
+
+        # The outputs of the last completed stepped run, also returned as
+        # the StopIteration value of the step_run generator
+        self.step_outputs: list[Any] | None = None
 
     def run(self, block: ModelBlockSchema, scope: dict[str, Any]) -> list[Any]:
         """
@@ -128,6 +143,149 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
 
             # Pop the scope frame of the block whatever the outcome
             self._scope_stack.pop()
+
+    def _publish_step(
+        self,
+        instruction: Instruction,
+        block: ModelBlockSchema,
+        scope: dict[str, Any]
+    ) -> None:
+        """
+        Publish a StepInfo of an executed instruction to the raw step hook.
+
+        Args:
+            instruction (Instruction): The executed instruction.
+            block (ModelBlockSchema): The block schema owning it.
+            scope (dict[str, Any]): The scope of the block executing it.
+        """
+
+        # No step hook, no step publication
+        if self.step_hook is None:
+            return
+
+        # The next chronological index of the step stream
+        self._step_counter += 1
+
+        # The step info of the instruction, with the live scope frames
+        step_info: StepInfo = make_step_info(
+            step_index=self._step_counter,
+            instruction=instruction,
+            block=block,
+            scope=scope,
+            scope_frames=self._scope_stack
+        )
+
+        # The hook may mutate the scope frames of the step info
+        self.step_hook(step_info)
+
+    def step_run(
+        self,
+        block: ModelBlockSchema,
+        scope: dict[str, Any]
+    ) -> "Generator[StepInfo, None, list[Any]]":
+        """
+        Execute a block schema step by step as a generator of StepInfo.
+
+        One StepInfo is yielded per executed instruction, in execution order
+        (per-iteration steps for the loop bodies, nested sub-block
+        instructions included, control flow and try instructions published
+        before their body). The consumer may call the edit method of a
+        yielded step between two iterations to patch a scope frame before
+        the next instruction. The outputs of the run are the return value
+        of the generator, also available in the step_outputs attribute, and
+        the scope is mutated in place like for the run method.
+
+        The execution runs on a worker thread gated by the generator: the
+        interpreter itself stays synchronous and no listener is required.
+        Only one stepped run may be active at a time per interpreter
+        instance. Abandoning the generator (break, close) unwinds the run
+        at the next step without executing the remaining instructions.
+
+        Args:
+            block (ModelBlockSchema): The block schema to execute.
+            scope (dict[str, Any]): The initial variables of the block (its
+                inputs), mutated in place during the execution.
+
+        Returns:
+            Generator[StepInfo, None, list[Any]]: The generator of the step
+            infos, returning the outputs of the block.
+        """
+
+        # The gate of the worker thread and the queue of the yielded steps
+        stepper: _Stepper = _Stepper()
+        steps: queue.Queue = queue.Queue()
+        holder: dict[str, Any] = {}
+
+        def sink(step_info: StepInfo) -> None:
+            """Publish the step then apply the queued edits on wake."""
+
+            # Bind the stepper so the edits of the consumer are queued
+            step_info._bind_stepper(stepper=stepper)
+
+            # Publish the step to the generator and wait for the release
+            steps.put(step_info)
+            edits: list[tuple[int, str, Tensor]] = stepper.wait()
+
+            # Apply the queued edits to the live scope frames; a closed
+            # stepper raises the abort signal from the wait call itself
+            edit_frame_depth: int
+            edit_out_var: str
+            edit_tensor: Tensor
+            for edit_frame_depth, edit_out_var, edit_tensor in edits:
+                step_info.scope_frames[edit_frame_depth][edit_out_var] = edit_tensor
+
+        def worker() -> None:
+            """Run the schema on this thread with the step sink installed."""
+
+            # Install the sink and restore the previous hook afterwards
+            previous_hook: Callable[[StepInfo], None] | None = self.step_hook
+            self.step_hook = sink
+            try:
+                holder["outputs"] = self.run(block=block, scope=scope)
+            except BaseException as error:  # noqa: BLE001 - forwarded below
+                holder["error"] = error
+            finally:
+                self.step_hook = previous_hook
+
+                # The end sentinel of the step queue, whatever the outcome
+                steps.put(None)
+
+        # Reset the step counter so forks replay the same step indices
+        self._step_counter = 0
+
+        # Start the worker thread gating the instruction executions
+        worker_thread: threading.Thread = threading.Thread(
+            target=worker,
+            daemon=True
+        )
+        worker_thread.start()
+
+        # The generator proper: yield the steps, release on each resume
+        try:
+            while True:
+
+                # The next step of the worker, or its end sentinel
+                item: StepInfo | None = steps.get()
+                if item is None:
+                    break
+
+                # The consumer may edit the scope frames of the step
+                yield item
+
+                # Let the worker apply the queued edits and continue
+                stepper.release()
+
+            # Forward the worker error to the consumer
+            if "error" in holder:
+                raise holder["error"]
+
+            # The outputs of the run, as the generator return value
+            self.step_outputs = holder.get("outputs")
+            return self.step_outputs
+        finally:
+
+            # An abandoned generator unwinds the worker at its next step
+            stepper.close()
 
     def _notify_block_enter(self, block: ModelBlockSchema, scope: dict[str, Any]) -> None:
         """
@@ -236,8 +394,21 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
                 a return instruction, else None.
         """
 
+        # The stepping hook is called around the instruction execution, with
+        # the control flow, try and loop signal instructions published before
+        # their execution so the stream follows the program order
+        stepping: bool = self.step_hook is not None
+        pre_published: bool = False
+        if stepping and isinstance(
+            instruction,
+            (ControlInstruction, TryInstruction, ContinueInstruction, BreakInstruction)
+        ):
+            self._publish_step(instruction=instruction, block=block, scope=scope)
+            pre_published = True
+
         # Dispatch to the execution of the specific instruction type,
         # propagating a return instruction reached in a nested body
+        result: list[Any] | None = None
         if isinstance(instruction, OpInstruction):
             self._execute_op(
                 instruction=instruction,
@@ -253,14 +424,14 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
             )
 
         elif isinstance(instruction, TryInstruction):
-            return self._execute_try(
+            result = self._execute_try(
                 instruction=instruction,
                 block=block,
                 scope=scope
             )
 
         elif isinstance(instruction, ControlInstruction):
-            return self._execute_control(
+            result = self._execute_control(
                 instruction=instruction,
                 block=block,
                 scope=scope
@@ -268,7 +439,7 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
 
         # A return instruction produces the outputs of the block
         elif isinstance(instruction, ReturnInstruction):
-            return self._execute_return(
+            result = self._execute_return(
                 instruction=instruction,
                 block=block,
                 scope=scope
@@ -285,8 +456,12 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
                 f"Unsupported instruction type: {type(instruction).__name__}"
             )
 
-        # No return instruction was executed
-        return None
+        # Publish the executed instruction when not already published
+        if stepping and not pre_published:
+            self._publish_step(instruction=instruction, block=block, scope=scope)
+
+        # No return instruction was executed, or its result is propagated
+        return result
 
     def _resolve_value(self, value: VarRef | Any, scope: dict[str, Any]) -> Any:
         """

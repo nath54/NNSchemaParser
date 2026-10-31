@@ -11,11 +11,13 @@ the intermediate values capture.
 # Import Modules
 from nnschemaparser.interpreter.interpreter import SchemaInterpreter
 from nnschemaparser.interpreter.record import ActivationRecorder
+from nnschemaparser.interpreter.stepping import StepInfo
 from nnschemaparser.interpreter.tracer import TraceListener, TraceRecorder
 
 __all__ = [
     "ActivationRecorder",
     "SchemaInterpreter",
+    "StepInfo",
     "TraceListener",
     "TraceRecorder"
 ]
