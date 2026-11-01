@@ -48,6 +48,20 @@ from nnschemaparser.interpreter import (
     capture_run
 )
 from nnschemaparser.parser import NNParser
+from nnschemaparser.serialization import (
+    dict_to_diffs,
+    dict_to_schema,
+    dict_to_trace,
+    diff_to_dict,
+    dump_diff_json,
+    dump_json,
+    dump_trace_json,
+    load_diff_json,
+    load_json,
+    load_trace_json,
+    schema_to_dict,
+    trace_to_dict
+)
 
 __all__ = [
     "ActivationRecorder",
@@ -80,10 +94,22 @@ __all__ = [
     "capture_run",
     "compare_traces",
     "instruction_dependencies",
+    "load_diff_json",
+    "load_json",
+    "load_trace_json",
     "method_call_sites",
+    "schema_to_dict",
+    "trace_to_dict",
     "diff_summary",
+    "dict_to_diffs",
+    "dict_to_schema",
+    "dict_to_trace",
+    "diff_to_dict",
+    "dump_diff_json",
+    "dump_json",
     "dump_schema",
+    "dump_trace_json",
     "format_step"
 ]
 
-__version__: str = "0.3.1"
+__version__: str = "0.3.2"

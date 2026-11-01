@@ -16,6 +16,18 @@ from nnschemaparser import (
     capture_run,
     compare_traces,
     dump_schema,
+    dump_json,
+    load_json,
+    schema_to_dict,
+    dict_to_schema,
+    trace_to_dict,
+    dict_to_trace,
+    dump_trace_json,
+    load_trace_json,
+    diff_to_dict,
+    dict_to_diffs,
+    dump_diff_json,
+    load_diff_json,
 )
 ```
 
@@ -163,6 +175,63 @@ Each `TraceDiff` carries `container_id_a`/`container_id_b`, `status`
 block path, variable name and operation name), and `max_abs_diff`,
 `mean_abs_diff`, `changed` when the captured values are comparable.
 
+## JSON serialization
+
+The schemas, the traces and the diffs serialize to JSON for the external
+viewers (the WebUI, analysis scripts), with a `format_version` header:
+
+```python
+from nnschemaparser import dump_json, load_json, trace_to_dict, dump_diff_json
+
+# The schema payload, viewer only until a module is re-attached
+dump_json(block=schema, path="schema.json")
+schema2 = load_json(path="schema.json")                       # module=None
+schema3 = load_json(path="schema.json", module=model)         # runnable again
+
+# One run: the activation and gradient traces, container ids included
+dump_trace_json(trace=record.trace, path="activations.json")
+dump_trace_json(trace=record.gradients, path="gradients.json")
+
+# The comparison of two runs, per status summary and per aligned pair
+dump_diff_json(diffs=diffs, path="diff.json")
+```
+
+The schema export is driven by toggles (all on by default, except the
+values):
+
+| Toggle | Exported payload section |
+|---|---|
+| `include_indices` | every instruction gets `"index"` (body position) and `"path"` (nested path, e.g. `"5/body/0"`) |
+| `include_dependencies` | the resolved `Dependency` dataflow edges of each instruction (needs the indices) |
+| `include_call_sites` | the `"sub_block_call_sites"` and `"method_call_sites"` index maps of every block |
+| `include_resolved` | the resolved shape and dtype of every instruction output |
+| `include_values` | the tensor values as base64 raw bytes (heavy, off by default) |
+| `trace` | a trace or a list of traces: the container ids are attached to the instructions binding their variables as `"containers"` entries (id and slot type, keyed by block path and variable name) |
+
+```python
+payload = schema_to_dict(block=schema, include_values=True, trace=record.trace)
+schema2 = dict_to_schema(payload=payload)   # and back, without a file
+```
+
+- The decoded schema holds no live module: the skipped children and the
+  self method calls need one. Pass the model to `load_json(module=...)` to
+  re-attach it — the sub-blocks are walked by attribute path (container
+  entries like `"layers.0"` included) and the method blocks get the owner
+  module.
+- The callables re-resolve by their dotted names on decode (with an
+  importlib fallback and a lazy proxy for the not-yet-importable names).
+- The weights always decode as `TensorReprWithValue`: with the real base64
+  value when exported, else a zero filled placeholder (the live module
+  takes precedence at run time anyway).
+- The trace payloads carry, per step, `step`, `container_id`,
+  `description`, `slot_type`, `out_var`, `op_name`, `block_path`,
+  `frame_depth`, `source_container_id` (gradients) and the tensor shape,
+  dtype and optional base64 value. `dict_to_trace` rebuilds an
+  `ActivationTrace` or a `GradientTrace` from the `kind` discriminator.
+- The diff payloads carry the `diff_summary` count map and one entry per
+  aligned pair: both container ids, `status`, `matched_by`, `out_var`,
+  `block_path`, `max_abs_diff`, `mean_abs_diff` and `changed`.
+
 ## Canvas positioning: call sites and dependencies
 
 ```python
@@ -210,3 +279,12 @@ children, sub-blocks and the resolved body of the block.
 (`TensorRepr | TensorReprWithValue | None`) field. Sub-blocks live in
 `schema.sub_blocks` keyed by attribute name (container entries keyed by
 `"container.index"`), and the other parsed methods in `schema.methods`.
+
+Every schema and instruction class also carries a readable `__repr__`
+(one line, developer oriented: `OpInstruction(out_var='hidden',
+target='torch.nn.functional.linear', args=[input, weight])`) and a
+readable `__str__` mirroring the dump style (`hidden = CALL
+torch.nn.functional.linear(input, weight) -> torch.float32[2, 256]`,
+`RETURN hidden`, `for item in experts [1 body, 0 else]`, ...). A
+`ModelBlockSchema` prints a short multi-line overview of its inputs,
+outputs, weights, sub-blocks, methods, skipped children and body size.

@@ -5,10 +5,40 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.2] — 2026-11-02
 
 ### Added
 
+- **Readable reprs and strs** — every schema and instruction class
+  (`ModelBlockSchema`, `TensorRepr`, `TensorReprWithValue`,
+  `TensorContainer`, `VarRef`, `BlockRef`, `OpInstruction`,
+  `BlockInstruction`, `ControlInstruction`, `TryInstruction`,
+  `ReturnInstruction`, `ContinueInstruction`, `BreakInstruction`) carries
+  a developer `__repr__` and a dump-style `__str__` (e.g.
+  `hidden = CALL fc1(x) -> torch.float32[2, 256]`, `RETURN hidden`,
+  `for item in experts [1 body, 0 else]`), consistent with the
+  `dump_schema` and trace conventions.
+- **JSON (de)serialization** — `schema_to_dict` / `dict_to_schema` and
+  `dump_json` / `load_json` turn a `ModelBlockSchema` tree into a JSON safe
+  payload and back, with toggle parameters (`include_indices`,
+  `include_dependencies`, `include_call_sites`, `include_resolved`,
+  `include_values`): the instruction indices and nested paths, the resolved
+  variable dependencies, the sub-block and method call site index maps and
+  the base64 encoded tensor values are exported on demand. The decoded
+  schema is viewer only (`module=None`) until a live module is re-attached
+  with `load_json(module=...)`, walked by attribute path (container entries
+  included). The traces get `trace_to_dict` / `dict_to_trace` and
+  `dump_trace_json` / `load_trace_json`, keyed by the stable container ids,
+  with a `format_version` header for the forward compatibility. The schema
+  export takes an optional `trace` parameter (a single trace or a list):
+  the container ids of the run are attached to the instructions binding
+  their variables as `"containers"` entries (id and slot type, keyed by
+  block path and variable name), so one self contained payload links the
+  graph structure to the captured tensors of a run. The trace diffs of a
+  comparison export too: `diff_to_dict` / `dict_to_diffs` and
+  `dump_diff_json` / `load_diff_json` carry the per status summary of
+  `diff_summary` and one entry per aligned pair (container ids, status,
+  matched_by, max/mean absolute difference and changed flag).
 - **Instruction dependencies** — `instruction_dependencies(block)` resolves,
   for every instruction of a block body, the variables it reads into
   `Dependency` entries (`input`, `weight`, `self`, `instruction` or

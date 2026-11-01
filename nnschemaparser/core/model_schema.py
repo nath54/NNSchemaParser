@@ -100,6 +100,54 @@ class ModelBlockSchema:
         # Store here the name of the described method, if not the forward
         self.method_name: str | None = method_name
 
+    def __repr__(self) -> str:
+        """
+        Get the developer representation of the block schema.
+
+        Returns:
+            str: E.g. "ModelBlockSchema(inputs=['x'], sub_blocks=['fc1',
+            'fc2'], body=4 instructions, method_name=None)".
+        """
+
+        # The input names, the sub-block paths and the body instruction count
+        return (
+            f"ModelBlockSchema(inputs={list(self.inputs.keys())!r}, "
+            f"sub_blocks={list(self.sub_blocks.keys())!r}, "
+            f"body={len(self.body)} instructions, "
+            f"method_name={self.method_name!r})"
+        )
+
+    def __str__(self) -> str:
+        """
+        Get the readable multi-line representation of the block schema.
+
+        Returns:
+            str: A short header followed by one line per section: the inputs
+            with their shapes, the outputs, the weight names, the sub-block
+            and method names, the skipped children and the body instruction
+            count. Use dump_schema for the full recursive view.
+        """
+
+        # The header names the parsed method when the block is a method
+        header: str = "ModelBlockSchema (forward)"
+        if self.method_name is not None:
+            header = f"ModelBlockSchema (method {self.method_name})"
+
+        # One line per section, the tensor descriptions via their strs
+        lines: list[str] = [header]
+        lines.extend(
+            f"  input {name}: {tensor_repr}" for name, tensor_repr in self.inputs.items()
+        )
+        lines.extend(f"  output: {tensor_repr}" for tensor_repr in self.outputs)
+        lines.extend(
+            f"  weight {name}: {tensor_repr}" for name, tensor_repr in self.weights.items()
+        )
+        lines.extend(f"  sub-block: {path}" for path in self.sub_blocks)
+        lines.extend(f"  method: {name}" for name in self.methods)
+        lines.extend(f"  skipped: {name} ({reason})" for name, reason in self.skipped.items())
+        lines.append(f"  body: {len(self.body)} instructions")
+        return "\n".join(lines)
+
     def sub_block_call_sites(self) -> dict[str, list[int]]:
         """
         Get the body indices where each sub-block of the block is called.

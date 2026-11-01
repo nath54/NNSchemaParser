@@ -33,6 +33,28 @@ class VarRef:
         # Store here the name of the referenced variable
         self.name: str = name
 
+    def __repr__(self) -> str:
+        """
+        Get the developer representation of the variable reference.
+
+        Returns:
+            str: E.g. "VarRef('hidden_states')".
+        """
+
+        # The name of the referenced variable
+        return f"VarRef({self.name!r})"
+
+    def __str__(self) -> str:
+        """
+        Get the readable representation of the variable reference.
+
+        Returns:
+            str: The name of the referenced variable.
+        """
+
+        # The name of the referenced variable
+        return self.name
+
 
 class BlockRef:
     """
@@ -59,6 +81,31 @@ class BlockRef:
         # Store here the index variable name for container sub-blocks
         self.index_var: str | None = index_var
 
+    def __repr__(self) -> str:
+        """
+        Get the developer representation of the sub-block reference.
+
+        Returns:
+            str: E.g. "BlockRef(path='attention', index_var=None)".
+        """
+
+        # The attribute path and the optional container index variable
+        return f"BlockRef(path={self.path!r}, index_var={self.index_var!r})"
+
+    def __str__(self) -> str:
+        """
+        Get the readable representation of the sub-block reference.
+
+        Returns:
+            str: E.g. "attention", or "experts[expert_index]" for a container
+            sub-block iterated with the index variable "expert_index".
+        """
+
+        # The container entries are displayed with their index variable
+        if self.index_var is None:
+            return self.path
+        return f"{self.path}[{self.index_var}]"
+
 
 class Instruction:
     """
@@ -78,6 +125,30 @@ class Instruction:
 
         # This field is filled later by the shape resolution pass
         self.resolved: TensorRepr | TensorReprWithValue | None = None
+
+    def __repr__(self) -> str:
+        """
+        Get the developer representation of the instruction.
+
+        Returns:
+            str: E.g. "Instruction(out_var='hidden')", and the concrete class
+            name for the subclasses without their own repr.
+        """
+
+        # The class name and the bound variable only, the subclasses extend it
+        return f"{type(self).__name__}(out_var={self.out_var!r})"
+
+    def __str__(self) -> str:
+        """
+        Get the readable representation of the instruction.
+
+        Returns:
+            str: The bound variable name, or the class name when the
+            instruction binds no variable.
+        """
+
+        # The bound variable name, or the class name when binding nothing
+        return self.out_var or type(self).__name__
 
     def resolve(self, value: Any, capture_values: bool = False) -> None:
         """
@@ -168,6 +239,42 @@ class OpInstruction(Instruction):
         # Store here the name of the unpacked positional arguments variable
         self.args_var: str | None = args_var
 
+    def __repr__(self) -> str:
+        """
+        Get the developer representation of the operation call.
+
+        Returns:
+            str: E.g. "OpInstruction(out_var='hidden',
+            target='torch.nn.functional.linear', args=[input, weight])".
+        """
+
+        # The bound variable, the qualified call name and the brief arguments
+        return (
+            f"OpInstruction(out_var={self.out_var!r}, "
+            f"target={self.qualified_name!r}, "
+            f"args=[{_format_args(args=self.args, kwargs={})}])"
+        )
+
+    def __str__(self) -> str:
+        """
+        Get the readable representation of the operation call.
+
+        Returns:
+            str: E.g. "hidden = CALL torch.nn.functional.linear(input, weight)
+            -> torch.float32[2, 256]", with the resolved shape when known.
+        """
+
+        # The call site, with the *args / **kwargs splats when present
+        call: str = f"{self.qualified_name}({_format_args(args=self.args, kwargs=self.kwargs)}"
+        if self.args_var is not None:
+            call += f", *{self.args_var}"
+        if self.kwargs_var is not None:
+            call += f", **{self.kwargs_var}"
+        call += ")"
+
+        # The bound variable name followed by the resolved shape when known
+        return f"{self.out_var} = CALL {call}{_format_resolved(repr_=self.resolved)}"
+
 
 class BlockInstruction(Instruction):
     """
@@ -224,6 +331,46 @@ class BlockInstruction(Instruction):
 
         # Store here the name of the unpacked positional arguments variable
         self.args_var: str | None = args_var
+
+    def __repr__(self) -> str:
+        """
+        Get the developer representation of the sub-block call.
+
+        Returns:
+            str: E.g. "BlockInstruction(out_var='hidden',
+            block_ref=BlockRef(path='fc1', index_var=None), args=[x])".
+        """
+
+        # The bound variable, the referenced sub-block and the brief arguments
+        return (
+            f"BlockInstruction(out_var={self.out_var!r}, "
+            f"block_ref={self.block_ref!r}, "
+            f"args=[{_format_args(args=self.args, kwargs={})}])"
+        )
+
+    def __str__(self) -> str:
+        """
+        Get the readable representation of the sub-block call.
+
+        Returns:
+            str: E.g. "hidden = CALL fc1(x) -> torch.float32[2, 256]", with
+            the resolved shape when known, and the splat form for the
+            container iteration calls ("hidden = CALL experts(*)").
+        """
+
+        # The splat form unpacks a single tuple variable as the arguments
+        if self.splat_args:
+            call: str = f"{self.block_ref.path}(*)"
+        else:
+            call = f"{self.block_ref}({_format_args(args=self.args, kwargs=self.kwargs)}"
+            if self.args_var is not None:
+                call += f", *{self.args_var}"
+            if self.kwargs_var is not None:
+                call += f", **{self.kwargs_var}"
+            call += ")"
+
+        # The bound variable name followed by the resolved shape when known
+        return f"{self.out_var} = CALL {call}{_format_resolved(repr_=self.resolved)}"
 
 
 class ControlInstruction(Instruction):
@@ -294,6 +441,49 @@ class ControlInstruction(Instruction):
         # Store here the enumerate index variable of a for loop
         self.index_var: str | None = index_var
 
+    def __repr__(self) -> str:
+        """
+        Get the developer representation of the control flow instruction.
+
+        Returns:
+            str: E.g. "ControlInstruction(kind='if', out_var='', body=3
+            instructions, else_body=1 instructions)".
+        """
+
+        # The control flow kind with the sizes of its two branches
+        return (
+            f"ControlInstruction(kind={self.kind!r}, out_var={self.out_var!r}, "
+            f"body={len(self.body)} instructions, "
+            f"else_body={len(self.else_body)} instructions)"
+        )
+
+    def __str__(self) -> str:
+        """
+        Get the readable representation of the control flow instruction.
+
+        Returns:
+            str: E.g. "for item in experts [1 body, 0 else]" for a loop over
+            the sub-block container "experts", or "if <condition> [...]" for
+            an if or while statement (the condition is re-evaluated at run
+            time, its expression lives in the nested condition instruction).
+        """
+
+        # The header depends on the control flow kind
+        header: str
+        if self.kind == "for":
+            target: str = "<iterable>"
+            if self.iter_container is not None:
+                target = str(self.iter_container)
+            bind_var: str = self.bind_var or "?"
+            header = f"for {bind_var} in {target}"
+        elif self.kind == "while":
+            header = "while <condition>"
+        else:
+            header = "if <condition>"
+
+        # The sizes of the two branches, for a quick overview of the node
+        return f"{header} [{len(self.body)} body, {len(self.else_body)} else]"
+
 
 class TryInstruction(Instruction):
     """
@@ -342,6 +532,36 @@ class TryInstruction(Instruction):
         # Store here the instructions of the finally body
         self.final_body: list[Instruction] = final_body
 
+    def __repr__(self) -> str:
+        """
+        Get the developer representation of the try instruction.
+
+        Returns:
+            str: E.g. "TryInstruction(out_var='', handlers=1, final_body=0
+            instructions)".
+        """
+
+        # The number of handlers and the presence of a finally body
+        return (
+            f"TryInstruction(out_var={self.out_var!r}, "
+            f"handlers={len(self.handlers)}, "
+            f"final_body={len(self.final_body)} instructions)"
+        )
+
+    def __str__(self) -> str:
+        """
+        Get the readable representation of the try instruction.
+
+        Returns:
+            str: E.g. "try [1 handlers, finally: 0 instructions]".
+        """
+
+        # The number of handlers and the finally body size
+        return (
+            f"try [{len(self.handlers)} handlers, "
+            f"finally: {len(self.final_body)} instructions]"
+        )
+
 
 class ReturnInstruction(Instruction):
     """
@@ -365,6 +585,31 @@ class ReturnInstruction(Instruction):
         # Store here the names of the returned variables
         self.out_vars: list[str] = out_vars
 
+    def __repr__(self) -> str:
+        """
+        Get the developer representation of the return instruction.
+
+        Returns:
+            str: E.g. "ReturnInstruction(out_vars=['hidden'])".
+        """
+
+        # The names of the returned variables
+        return f"ReturnInstruction(out_vars={self.out_vars!r})"
+
+    def __str__(self) -> str:
+        """
+        Get the readable representation of the return instruction.
+
+        Returns:
+            str: E.g. "RETURN hidden" or "RETURN (hidden, mask)" for several
+            returned variables.
+        """
+
+        # One variable returned directly, several as a tuple
+        if len(self.out_vars) == 1:
+            return f"RETURN {self.out_vars[0]}"
+        return f"RETURN ({', '.join(self.out_vars)})"
+
 
 class ContinueInstruction(Instruction):
     """
@@ -382,6 +627,28 @@ class ContinueInstruction(Instruction):
         # Init parent, a continue instruction binds no new variable
         super().__init__(out_var="")
 
+    def __repr__(self) -> str:
+        """
+        Get the developer representation of the continue instruction.
+
+        Returns:
+            str: The constant "ContinueInstruction()".
+        """
+
+        # No field beyond the class identity
+        return "ContinueInstruction()"
+
+    def __str__(self) -> str:
+        """
+        Get the readable representation of the continue instruction.
+
+        Returns:
+            str: The constant "CONTINUE".
+        """
+
+        # The python statement it stands for
+        return "CONTINUE"
+
 
 class BreakInstruction(Instruction):
     """
@@ -397,3 +664,91 @@ class BreakInstruction(Instruction):
 
         # Init parent, a break instruction binds no new variable
         super().__init__(out_var="")
+
+    def __repr__(self) -> str:
+        """
+        Get the developer representation of the break instruction.
+
+        Returns:
+            str: The constant "BreakInstruction()".
+        """
+
+        # No field beyond the class identity
+        return "BreakInstruction()"
+
+    def __str__(self) -> str:
+        """
+        Get the readable representation of the break instruction.
+
+        Returns:
+            str: The constant "BREAK".
+        """
+
+        # The python statement it stands for
+        return "BREAK"
+
+
+def _format_arg(arg: VarRef | Any) -> str:
+    """
+    Format an instruction argument briefly, for the reprs and the strs.
+
+    Args:
+        arg (VarRef | Any): The argument to format, a variable reference or a
+            literal value.
+
+    Returns:
+        str: The name of the referenced variable, or a short literal repr.
+    """
+
+    # The name of the referenced variable
+    if isinstance(arg, VarRef):
+        return arg.name
+
+    # The sub-block references are described by their readable string
+    if isinstance(arg, BlockRef):
+        return str(arg)
+
+    # The common scalar literals are shown by their repr, briefly
+    if arg is None or isinstance(arg, (bool, int, float, str)):
+        return repr(arg)[:40]
+
+    # Any other python value is shown by type only (callables, modules, ...)
+    return type(arg).__name__
+
+
+def _format_args(args: list[VarRef | Any], kwargs: dict[str, VarRef | Any]) -> str:
+    """
+    Format the positional and the keyword arguments of a call, briefly.
+
+    Args:
+        args (list[VarRef | Any]): The positional arguments to format.
+        kwargs (dict[str, VarRef | Any]): The keyword arguments to format.
+
+    Returns:
+        str: E.g. "x, dim=1" or "" when there is no argument at all.
+    """
+
+    # The positional arguments first, then the keyword ones
+    parts: list[str] = [_format_arg(arg=arg) for arg in args]
+    parts.extend(f"{key}={_format_arg(arg=arg)}" for key, arg in kwargs.items())
+    return ", ".join(parts)
+
+
+def _format_resolved(repr_: TensorRepr | TensorReprWithValue | None) -> str:
+    """
+    Format the resolved representation of an instruction output, briefly.
+
+    Args:
+        repr_ (TensorRepr | TensorReprWithValue | None): The resolved
+            representation of the instruction, or None when unresolved.
+
+    Returns:
+        str: E.g. " -> torch.float32[2, 16]", or "" when unresolved.
+    """
+
+    # No shape available yet, or for a scalar value
+    if repr_ is None:
+        return ""
+    if repr_.shape == ():
+        return f" -> {repr_.dtype}"
+    return f" -> {repr_.dtype}{list(repr_.shape)}"

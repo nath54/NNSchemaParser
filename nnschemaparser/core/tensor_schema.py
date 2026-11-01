@@ -34,6 +34,30 @@ class TensorRepr:
         # Store here the type of the tensor
         self.dtype: str = dtype
 
+    def __repr__(self) -> str:
+        """
+        Get the developer representation of the tensor representation.
+
+        Returns:
+            str: E.g. "TensorRepr(shape=(2, 16), dtype='torch.float32')".
+        """
+
+        # The shape and the dtype of the represented tensor
+        return f"TensorRepr(shape={self.shape!r}, dtype={self.dtype!r})"
+
+    def __str__(self) -> str:
+        """
+        Get the readable representation of the tensor representation.
+
+        Returns:
+            str: E.g. "torch.float32[2, 16]", or "bool" for scalar values.
+        """
+
+        # The scalar python values have no shape brackets
+        if self.shape == ():
+            return self.dtype
+        return f"{self.dtype}{list(self.shape)}"
+
 
 class TensorReprWithValue(TensorRepr):
     """
@@ -55,6 +79,21 @@ class TensorReprWithValue(TensorRepr):
 
         # Store here the value of the tensor
         self.value: Tensor = value
+
+    def __repr__(self) -> str:
+        """
+        Get the developer representation of the value holding representation.
+
+        Returns:
+            str: E.g. "TensorReprWithValue(shape=(2, 16), dtype='torch.float32',
+            value=Tensor)". The tensor itself is not printed, only its type.
+        """
+
+        # The shape, the dtype and the type of the held value (not its content)
+        return (
+            f"TensorReprWithValue(shape={self.shape!r}, dtype={self.dtype!r}, "
+            f"value={type(self.value).__name__})"
+        )
 
 
 class TensorContainer(TensorReprWithValue):
@@ -97,3 +136,30 @@ class TensorContainer(TensorReprWithValue):
 
         # Store here the role of the tensor in the execution
         self.slot_type: str = slot_type
+
+    def __repr__(self) -> str:
+        """
+        Get the developer representation of the captured tensor.
+
+        Returns:
+            str: E.g. "TensorContainer(container_id='input_0001',
+            slot_type='input', shape=(2, 16), dtype='torch.float32')".
+        """
+
+        # The container identity first, then the tensor description
+        return (
+            f"TensorContainer(container_id={self.container_id!r}, "
+            f"slot_type={self.slot_type!r}, shape={self.shape!r}, "
+            f"dtype={self.dtype!r})"
+        )
+
+    def __str__(self) -> str:
+        """
+        Get the readable representation of the captured tensor.
+
+        Returns:
+            str: E.g. "input_0001 (input): torch.float32[2, 16]".
+        """
+
+        # The container id and slot type, followed by the tensor description
+        return f"{self.container_id} ({self.slot_type}): {TensorRepr.__str__(self)}"

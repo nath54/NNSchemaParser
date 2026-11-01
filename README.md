@@ -340,6 +340,49 @@ diffs = compare_traces(trace_a=base_record.trace, trace_b=fork_trace, atol=1e-6)
 # max_abs_diff, mean_abs_diff, changed; diff_summary(diffs) counts them
 ```
 
+## JSON serialization
+
+Everything exports to JSON for the external viewers (the WebUI, analysis
+scripts), with a `format_version` header: the schema, the traces of a run
+and the diffs of a comparison.
+
+```python
+from nnschemaparser import (
+    capture_run, compare_traces,
+    dump_json, load_json,
+    dump_trace_json, load_trace_json,
+    dump_diff_json, load_diff_json,
+)
+
+# The schema, with the instruction indices, the dependency edges, the call
+# sites and the container ids of one run attached to the instructions —
+# one self-contained payload linking the graph to the captured tensors
+record = capture_run(block=schema, scope={"x": x}, capture_grads=True)
+dump_json(block=schema, path="schema.json", trace=[record.trace, record.gradients])
+
+# Runnable again in another process (module re-attached by attribute path)
+schema2 = load_json(path="schema.json", module=model)
+
+# The activation and gradient traces, keyed by their container ids
+dump_trace_json(trace=record.trace, path="activations.json")
+dump_trace_json(trace=record.gradients, path="gradients.json")
+
+# The comparison of two runs: the per status summary plus one entry per
+# aligned pair (container ids, status, matched_by, max/mean abs diff)
+diffs = compare_traces(trace_a=base.trace, trace_b=fork.trace, atol=1e-6)
+dump_diff_json(diffs=diffs, path="diff.json")
+```
+
+The export is driven by toggles: `include_indices` (the body position and
+nested path of every instruction, e.g. `"5/body/0"`),
+`include_dependencies` (the resolved dataflow edges),
+`include_call_sites` (the sub-block and method call index maps),
+`include_resolved` (the shape and dtype of every step) and
+`include_values` (the tensor values as base64 raw bytes, off by default).
+The decoded schema is viewer only (`module=None`) until a live module is
+re-attached with `load_json(module=...)`; see [docs/API.md](docs/API.md)
+for the full option table and the payload reference.
+
 ## What is supported
 
 - All the usual forward constructs: `if`/`elif`/`else`, `for` (containers,
@@ -396,6 +439,10 @@ matrix and the sweep CLI.
 - **Stepped runs, edits and trace comparison** (above) — the `StepInfo`,
   `ExecutionRecord`, `capture_run`, `compare_traces` and `diff_summary`
   execution-control API of the 0.3.0 release.
+- **JSON serialization** (above) — the `schema_to_dict` / `dump_json` /
+  `load_json` schema exporter with its toggles, the `trace_to_dict` /
+  `dump_trace_json` run exporter and the `diff_to_dict` / `dump_diff_json`
+  comparison exporter of the 0.3.2 release.
 - **[docs/DOCUMENTATION.md](docs/DOCUMENTATION.md)** — full documentation:
   how the parser works, the schema and instruction reference, the
   interpreter, usage recipes, supported syntax, supported/unsupported
@@ -407,6 +454,7 @@ matrix and the sweep CLI.
   no network needed), also runnable with `python -m tests.test_new_syntax`.
 - `tests/test_traces.py`, `tests/test_capture.py`, `tests/test_stepping.py`,
   `tests/test_diff.py` — the traces and execution control tests (offline).
+- `tests/test_serialization.py` — the JSON round-trip tests (offline).
 - `tests/test_speech_models.py` — the espnet/torchaudio regression tests.
 
 ## License

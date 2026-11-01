@@ -305,6 +305,42 @@ body:
   RETURN $t1
 ```
 
+### Serialize a schema, a run and a diff to JSON
+
+Everything exports to JSON for the external viewers, with a
+`format_version` header:
+
+```python
+from nnschemaparser import (
+    capture_run, compare_traces,
+    dump_json, load_json,
+    dump_trace_json, load_trace_json,
+    dump_diff_json, load_diff_json,
+)
+
+# The schema, with the instruction indices, the dependency edges, the call
+# sites and the container ids of one run attached to the instructions
+record = capture_run(block=schema, scope={"x": x}, capture_grads=True)
+dump_json(block=schema, path="schema.json", trace=[record.trace, record.gradients])
+
+# Runnable again in another process (module re-attached by attribute path)
+schema2 = load_json(path="schema.json", module=model)
+
+# The activation and gradient traces, keyed by their container ids
+dump_trace_json(trace=record.trace, path="activations.json")
+dump_trace_json(trace=record.gradients, path="gradients.json")
+
+# The comparison of two runs (a base and a fork)
+diffs = compare_traces(trace_a=base.trace, trace_b=fork.trace, atol=1e-6)
+dump_diff_json(diffs=diffs, path="diff.json")
+```
+
+The export toggles (`include_indices`, `include_dependencies`,
+`include_call_sites`, `include_resolved`, `include_values`) trim the
+payload: see [API.md](API.md) for the full option table. The decoded
+schema is viewer only until a live module is re-attached with
+`load_json(module=...)`.
+
 ## 6. Supported syntax
 
 The lowering covers the Python actually written in `forward` methods:
@@ -497,6 +533,7 @@ nnschemaparser/              The package (pip installable)
   __init__.py                Public API: NNParser, SchemaInterpreter, schema types
   forward.py                 forward unwrapping (transformers v5 decorators)
   dump.py                    readable text dumpers of a schema tree
+  serialization.py           JSON (de)serialization of schemas, traces, diffs
 
   core/                      The schema data model
     model_schema.py          ModelBlockSchema
