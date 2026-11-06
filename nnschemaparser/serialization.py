@@ -111,10 +111,7 @@ def schema_to_dict(
         "include_dependencies": include_dependencies,
         "include_resolved": include_resolved,
         "include_values": include_values,
-        "containers": _container_index(
-            traces=trace,
-            root_name=type(block.module).__name__ if block.module is not None else ""
-        )
+        "containers": _container_index(traces=trace)
     }
 
     # Encode the block tree from the root, each block resolving its own
@@ -473,23 +470,19 @@ def _encode_block(
 
 
 def _container_index(
-    traces: TensorTrace | list[TensorTrace] | None,
-    root_name: str = ""
+    traces: TensorTrace | list[TensorTrace] | None
 ) -> dict[tuple[str, str], list[dict[str, str]]]:
     """
     Index the container ids of a run by block path and variable name.
 
-    The root block is traced under its module class name (e.g. "MLP")
-    while the schema encoder keys it by the empty path, so the steps of
-    the root name are also indexed under the empty path.
+    The block paths of the traces are the full attribute paths from the
+    root block, the root block addressed by its empty path like in the
+    schema exports.
 
     Args:
         traces (TensorTrace | list[TensorTrace] | None): The traces to
             index, in attachment order (the activations before the
             gradients typically).
-        root_name (str): The module class name of the root block, "" when
-            unknown (the steps of the empty path are then already keyed
-            under the empty path).
 
     Returns:
         dict[tuple[str, str], list[dict[str, str]]]: The container id and
@@ -522,10 +515,6 @@ def _container_index(
                 "slot_type": step.slot_type
             }
             index.setdefault(key, []).append(entry)
-
-            # The steps of the root block are also keyed by its empty path
-            if root_name and step.block_path == root_name:
-                index.setdefault(("", step.out_var), []).append(entry)
     return index
 
 

@@ -10,6 +10,7 @@ the intermediate values capture.
 
 # Import Modules
 from nnschemaparser.interpreter.interpreter import SchemaInterpreter
+from nnschemaparser.interpreter.overrides import Override, OverrideApplier
 from nnschemaparser.interpreter.record import (
     ActivationRecorder,
     ExecutionRecord,
@@ -21,6 +22,8 @@ from nnschemaparser.interpreter.tracer import TraceListener, TraceRecorder
 __all__ = [
     "ActivationRecorder",
     "ExecutionRecord",
+    "Override",
+    "OverrideApplier",
     "SchemaInterpreter",
     "StepInfo",
     "TraceListener",

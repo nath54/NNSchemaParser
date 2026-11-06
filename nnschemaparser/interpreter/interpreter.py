@@ -34,6 +34,7 @@ from nnschemaparser.core.instructions import (
 )
 from nnschemaparser.interpreter.tracer import TraceListener
 from nnschemaparser.interpreter.stepping import StepInfo, _Stepper, make_step_info
+from nnschemaparser.interpreter.overrides import Override, OverrideApplier
 from nnschemaparser.interpreter.control_flow import (
     ControlFlowExecutor,
     _LoopBreak,
@@ -50,7 +51,8 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
     def __init__(
         self,
         capture_values: bool = False,
-        listeners: list[TraceListener] | None = None
+        listeners: list[TraceListener] | None = None,
+        overrides: list[Override] | None = None
     ) -> None:
         """
         Init function.
@@ -60,6 +62,9 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
                 TensorReprWithValue inside the instruction resolved field.
             listeners (list[TraceListener] | None): The optional listeners
                 notified of every event of the schema executions.
+            overrides (list[Override] | None): The optional overrides of the
+                values of the run, applied at the instruction bindings and
+                the weight seedings before the listeners observe them.
         """
 
         # Store here whether the intermediate values must be captured
@@ -67,6 +72,12 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
 
         # Store here the listeners of the interpreter events
         self.listeners: list[TraceListener] = listeners or []
+
+        # The applier of the value overrides of the runs, a no-op without
+        # overrides
+        self.override_applier: OverrideApplier = OverrideApplier(
+            overrides=overrides
+        )
 
         # The stack of the executed block scopes, the innermost frame last.
         # Maintained by run() so the step hooks and the consumers can locate
@@ -99,8 +110,16 @@ class SchemaInterpreter(InstructionExecutor, ControlFlowExecutor):
             list[Any]: The values returned by the block.
         """
 
+        # A top level run resets the override occurrences and re-resolves
+        # the override targets against this root block
+        if not self._scope_stack:
+            self.override_applier.reset(root_block=block)
+
         # Seed the scope with the weights of the block
         self._seed_weights(block=block, scope=scope)
+
+        # Apply the weight overrides targeting this block, if any
+        self.override_applier.apply_weights(block=block, scope=scope)
 
         # Seed the scope with the source module of the block
         if block.module is not None:

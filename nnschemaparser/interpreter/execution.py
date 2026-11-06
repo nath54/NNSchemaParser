@@ -25,6 +25,7 @@ from nnschemaparser.core.instructions import (
 from nnschemaparser.core.model_schema import ModelBlockSchema
 from nnschemaparser.core.tensor_schema import TensorRepr, TensorReprWithValue
 from nnschemaparser.forward import resolve_forward
+from nnschemaparser.interpreter.overrides import OverrideApplier
 from nnschemaparser.interpreter.scope import (
     PLACEHOLDER_DTYPE,
     resolve_placeholder
@@ -39,6 +40,10 @@ class InstructionExecutor:
     The concrete interpreter inherits this class and adds the execution of the
     control flow instructions on top of it.
     """
+
+    # The applier of the overrides of the instruction bindings, set by the
+    # concrete interpreter at its construction
+    override_applier: OverrideApplier
 
     def _notify_op(self, instruction: OpInstruction, scope: dict[str, Any]) -> None:
         """
@@ -141,6 +146,13 @@ class InstructionExecutor:
         # Call the recorded torch function with the resolved arguments
         result: Any = call_target(*resolved_args, **resolved_kwargs)
 
+        # Apply the overrides targeting this instruction binding
+        result = self.override_applier.apply_binding(
+            instruction=instruction,
+            block=block,
+            value=result
+        )
+
         # Bind the result to the output variable of the instruction
         scope[instruction.out_var] = result
 
@@ -216,14 +228,21 @@ class InstructionExecutor:
 
         # Bind the outputs like python: a single output is bound directly
         # and several outputs are bound as a tuple
-        if len(result) == 1:
-            scope[instruction.out_var] = result[0]
-        else:
-            scope[instruction.out_var] = tuple(result)
+        bound_value: Any = result[0] if len(result) == 1 else tuple(result)
+
+        # Apply the overrides targeting this instruction binding
+        bound_value = self.override_applier.apply_binding(
+            instruction=instruction,
+            block=block,
+            value=bound_value
+        )
+
+        # Bind the possibly overridden value to the output variable
+        scope[instruction.out_var] = bound_value
 
         # Fill the resolved representation of the instruction
         if len(result) == 1:
-            instruction.resolve(value=result[0], capture_values=self.capture_values)
+            instruction.resolve(value=bound_value, capture_values=self.capture_values)
 
         # Notify the listeners of the executed method call
         self._notify_block_call(
@@ -369,14 +388,21 @@ class InstructionExecutor:
 
         # Bind the outputs like python: a single output is bound directly
         # and several outputs are bound as a tuple
-        if len(result) == 1:
-            scope[instruction.out_var] = result[0]
-        else:
-            scope[instruction.out_var] = tuple(result)
+        bound_value: Any = result[0] if len(result) == 1 else tuple(result)
+
+        # Apply the overrides targeting this instruction binding
+        bound_value = self.override_applier.apply_binding(
+            instruction=instruction,
+            block=block,
+            value=bound_value
+        )
+
+        # Bind the possibly overridden value to the output variable
+        scope[instruction.out_var] = bound_value
 
         # Fill the resolved representation of the instruction
         if len(result) == 1:
-            instruction.resolve(value=result[0], capture_values=self.capture_values)
+            instruction.resolve(value=bound_value, capture_values=self.capture_values)
 
         # Notify the listeners of the executed sub-block call
         self._notify_block_call(
@@ -414,6 +440,13 @@ class InstructionExecutor:
 
         # Call the real module with the resolved arguments
         result: Any = module(*resolved_args, **resolved_kwargs)
+
+        # Apply the overrides targeting this instruction binding
+        result = self.override_applier.apply_binding(
+            instruction=instruction,
+            block=block,
+            value=result
+        )
 
         # Bind the result to the output variable of the instruction
         scope[instruction.out_var] = result

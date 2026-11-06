@@ -5,6 +5,52 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-11-06
+
+### Added
+
+- **Mid-run value overrides** — the new `Override` class and the
+  `overrides` parameter of `capture_run` and `SchemaInterpreter` force the
+  replacement of any value of a run: the tensor bound by a precise
+  instruction of a block (by nested instruction path, aligned with the
+  dependency paths), the instructions binding a given variable filtered by
+  the display name of the operation (the descriptor mode, with a 1-based
+  `occurrence` filter for the loop iterations), or a weight of a block
+  replaced at its scope seeding. The replacement is either raw values
+  (reshaped to the replaced tensor, a single value filling it) or a
+  callable receiving the produced value (`patch`), e.g.
+  `lambda t: torch.zeros_like(t)` for an ablation. The override is applied
+  at the binding point, before the resolved representations and the
+  listeners observe the value: the traces carry the overridden tensors, the
+  diffs against a reference run show the propagation of the edit, and the
+  conditions can be overridden to steer the control flow. The targets are
+  resolved and validated at the start of each top level run (unknown block
+  paths, instruction paths and weight names raise a `ValueError`), and the
+  applier is a no-op without overrides.
+- **`Override.from_container_id`** — builds an override targeting the
+  instruction that produced a captured tensor of a stored run: the block
+  path, the bound variable and the occurrence are resolved from the trace,
+  so a viewer can offer "edit this activation and re-run" on top of the
+  reference run. Only the named activation containers are addressable; the
+  inputs are overridden through the run scope and the outputs through the
+  return values.
+- The full test suite of the overrides (`tests/test_overrides.py`): the
+  instruction path, descriptor, occurrence, patch, weight, condition
+  steering, `from_container_id` round trip, stepped mode and error cases.
+
+### Changed
+
+- **The block paths of the traces are now full attribute paths from the
+  root block** (e.g. `"encoder.layers.0"`), aligned with the `path` fields
+  of the schema exports and unambiguous for the addressing of the
+  overrides. The root block is traced under its empty path (`""`), so the
+  container ids of its activations are prefixed `tensor_` instead of the
+  module class name, and the container index of the schema exports no
+  longer needs the root name special case.
+- `capture_run` and `SchemaInterpreter` accept the new optional
+  `overrides` parameter (a list of `Override`), defaulting to no override
+  and preserving the previous behavior.
+
 ## [0.3.2] — 2026-11-02
 
 ### Added

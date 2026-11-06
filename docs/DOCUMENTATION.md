@@ -320,6 +320,8 @@ from nnschemaparser import (
 
 # The schema, with the instruction indices, the dependency edges, the call
 # sites and the container ids of one run attached to the instructions
+# (the run may carry overrides: Override(block_path="blocks.0",
+# instruction="1/body/0", values=0.0) passed to capture_run)
 record = capture_run(block=schema, scope={"x": x}, capture_grads=True)
 dump_json(block=schema, path="schema.json", trace=[record.trace, record.gradients])
 

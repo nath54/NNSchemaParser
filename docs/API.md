@@ -72,12 +72,19 @@ as a `TensorReprWithValue` on the `resolved` field of each instruction, so a
 consumer can show the value of every intermediate tensor.
 
 - **`capture_run()` and `ExecutionRecord`** — the one-call capture workflow
-  bundling outputs, activation trace, final scope and lazy gradients.
+  bundling outputs, activation trace, final scope and lazy gradients. The
+  optional `overrides` parameter (a list of `Override`, see the next
+  section) force-replaces values of the run.
 - **`SchemaInterpreter.step_run()` and `StepInfo`** — stepped execution with
   mid-run scope edits (`step.edit(...)`), plus the raw `step_hook` mode.
 - **`compare_traces()` / `TraceDiff` / `diff_summary`** — step-by-step
   comparison of two traces (base run vs fork), aligned by container id with
   a role fallback.
+- **`Override`** — the mid-run replacement of a value, targeted by nested
+  instruction path, by an `out_var` / `op_name` descriptor or by weight
+  name, with an optional 1-based `occurrence` filter for the loop
+  iterations. `Override.from_container_id()` resolves the target from a
+  captured tensor of a stored run.
 
 ## Tracing an execution
 
@@ -122,8 +129,9 @@ gradients = recorder.collect_gradients()   # cross-referenced GradientTrace
 - `ActivationTrace.steps` — the chronological `TraceStep` entries: `step`,
   `container_id` (`"input_0001"`, `"layers_0_0002"`, `"output_0007"`),
   `description`, `slot_type` (`"input"/"activation"/"output"`), `out_var`,
-  `op_name`, `block_path` and `tensor` (the `TensorContainer` holding the
-  detached value).
+  `op_name`, `block_path` (the full attribute path from the root block,
+  the root block being `""`, aligned with the schema export paths) and
+  `tensor` (the `TensorContainer` holding the detached value).
 - `collect_gradients()` — to call after a backward pass: returns a
   `GradientTrace` whose steps mirror the activation steps in the same order,
   with `container_id = "grad_" + activation id` and `source_container_id`

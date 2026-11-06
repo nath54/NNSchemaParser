@@ -303,7 +303,7 @@ def test_schema_trace_linkage() -> None:
     first: dict = payload["body"][0]
     assert first["out_var"] == "hidden"
     attached: list[dict] = first["containers"]
-    assert [entry["container_id"] for entry in attached] == ["MLP_0003"]
+    assert [entry["container_id"] for entry in attached] == ["tensor_0003"]
     assert attached[0]["slot_type"] == "activation"
 
     # The fc2 call instruction carries the output container of the block
@@ -333,7 +333,7 @@ def test_schema_trace_linkage() -> None:
     linked: list[dict] = both["body"][0]["containers"]
     slot_kinds: list[str] = [entry["slot_type"] for entry in linked]
     assert slot_kinds == ["activation", "gradient"]
-    assert linked[1]["container_id"] == "grad_MLP_0003"
+    assert linked[1]["container_id"] == "grad_tensor_0003"
 
 
 def test_diff_export() -> None:

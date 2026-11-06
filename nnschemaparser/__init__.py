@@ -41,6 +41,8 @@ from nnschemaparser.dump import dump_schema
 from nnschemaparser.interpreter import (
     ActivationRecorder,
     ExecutionRecord,
+    Override,
+    OverrideApplier,
     SchemaInterpreter,
     StepInfo,
     TraceListener,
@@ -78,6 +80,8 @@ __all__ = [
     "ModelBlockSchema",
     "NNParser",
     "OpInstruction",
+    "Override",
+    "OverrideApplier",
     "ReturnInstruction",
     "SchemaInterpreter",
     "StepInfo",
@@ -112,4 +116,4 @@ __all__ = [
     "format_step"
 ]
 
-__version__: str = "0.3.2"
+__version__: str = "0.4.0"

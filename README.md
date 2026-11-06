@@ -340,6 +340,51 @@ diffs = compare_traces(trace_a=base_record.trace, trace_b=fork_trace, atol=1e-6)
 # max_abs_diff, mean_abs_diff, changed; diff_summary(diffs) counts them
 ```
 
+## Mid-run value overrides (0.4.0)
+
+Any value of a run can be **force replaced** at the precise instruction that
+produces it — activations, sub-block call results, even condition values
+(steering the control flow) — or a weight of a block can be swapped for the
+duration of one run, without mutating the schema nor the source module. The
+replacement is applied before the recorder observes the value, so the trace
+carries the overridden tensors and the diff against a reference run shows
+exactly how the edit propagates:
+
+```python
+from nnschemaparser import Override, capture_run, compare_traces
+
+base = capture_run(block=schema, scope={"x": x})
+
+record = capture_run(
+    block=schema,
+    scope={"x": x},
+    overrides=[
+        # By nested instruction path (aligned with the dependency paths):
+        # zero the result of the loop body instruction 0, 2nd iteration only
+        Override(block_path="encoder.layers", instruction="1/body/0",
+                 occurrence=2, values=0.0),
+
+        # By descriptor: every binding of a variable by a given callable
+        Override(block_path="", out_var="hidden", op_name="torch.relu",
+                 patch=lambda t: torch.nan_to_num(t)),
+
+        # A weight of one block, for this run only
+        Override(block_path="fc1", weight="weight",
+                 values=torch.randn_like(schema.sub_blocks["fc1"].weights["weight"].value)),
+    ],
+)
+
+diffs = compare_traces(trace_a=base.trace, trace_b=record.trace)
+```
+
+The block paths are the full attribute paths from the root block, like the
+`path` fields of the schema exports (the root block is `""`, a container
+entry of a module list is `"encoder.layers.0"`). The `occurrence` filter is
+1-based and also accepts a list of iteration numbers. The
+`Override.from_container_id(trace, container_id, values=...)` factory builds
+an override from a tensor of a stored run, which is how a viewer offers
+"edit this activation and re-run" on top of `capture_run`.
+
 ## JSON serialization
 
 Everything exports to JSON for the external viewers (the WebUI, analysis

@@ -24,6 +24,7 @@ from nnschemaparser.core.instructions import (
 from nnschemaparser.core.model_schema import ModelBlockSchema
 from nnschemaparser.core.tensor_schema import TensorContainer
 from nnschemaparser.interpreter.interpreter import SchemaInterpreter
+from nnschemaparser.interpreter.overrides import Override
 from nnschemaparser.interpreter.tracer import TraceListener
 
 
@@ -162,20 +163,19 @@ class ActivationRecorder(TraceListener):
 
     def _block_path(self, block: ModelBlockSchema) -> str:
         """
-        Get the attribute path of an entered block from its parent.
+        Get the local attribute name of a block from its parent.
 
         Args:
             block (ModelBlockSchema): The block being entered.
 
         Returns:
-            str: The key of the block in its parent sub-blocks or methods,
-            or the module class name for the root block.
+            str: The key of the block in its parent sub-blocks or methods.
+            The root block is addressed by its empty path, like in the
+            schema exports.
         """
 
-        # The root block is named after its module class
+        # The root block is addressed by its empty path
         if not self._stack:
-            if block.module is not None:
-                return type(block.module).__name__
             return ""
 
         # The nested blocks are searched by identity in their parent
@@ -267,9 +267,19 @@ class ActivationRecorder(TraceListener):
             scope (dict[str, Any]): The scope of the block execution.
         """
 
-        # Push the block with its attribute path on the stack, before the
-        # inputs are recorded so their frame depth is the root frame depth
-        self._stack.append((block, self._block_path(block=block)))
+        # Push the block with its full attribute path on the stack, before
+        # the inputs are recorded so their frame depth is the root frame
+        # depth. The root block is addressed by its empty path like in the
+        # schema exports, the children accumulate the parent path so the
+        # block paths of the traces are unambiguous
+        local_path: str = self._block_path(block=block)
+        full_path: str = local_path if not self._stack \
+            else ".".join(
+                path
+                for path in (self._stack[-1][1], local_path)
+                if path
+            )
+        self._stack.append((block, full_path))
 
         # The inputs of the root block open the trace
         if self._depth == 0:
@@ -548,7 +558,8 @@ def capture_run(
     block: ModelBlockSchema,
     scope: dict[str, Any],
     capture_grads: bool = False,
-    listeners: list[TraceListener] | None = None
+    listeners: list[TraceListener] | None = None,
+    overrides: list[Override] | None = None
 ) -> ExecutionRecord:
     """
     Execute a block schema with the capture of every intermediate tensor.
@@ -567,6 +578,9 @@ def capture_run(
             the gradient collection after a backward pass.
         listeners (list[TraceListener] | None): The optional extra listeners
             notified of the events of the run.
+        overrides (list[Override] | None): The optional overrides of the
+            values of the run, applied at the instruction bindings and the
+            weight seedings before the listeners observe them.
 
     Returns:
         ExecutionRecord: The record of the captured execution.
@@ -580,7 +594,8 @@ def capture_run(
     all_listeners: list[TraceListener] = [recorder, *(listeners or [])]
     interpreter: SchemaInterpreter = SchemaInterpreter(
         capture_values=True,
-        listeners=all_listeners
+        listeners=all_listeners,
+        overrides=overrides
     )
 
     # The execution of the block schema
