@@ -285,6 +285,112 @@ def test_descriptor_override() -> None:
     assert len(record.trace.steps) == len(overridden.trace.steps)
 
 
+def test_override_priority_first_match_wins() -> None:
+    """
+    When several overrides match the same binding, the first one of the
+    list wins and the later ones are skipped for this binding.
+    """
+
+    # The test model and its schema
+    model: MoE = MoE(hidden=4, experts=1).eval()
+    schema = build_schema(model=model, shape=(2, 4))
+    x: Tensor = torch.randn(2, 4)
+
+    # Two overrides of the same expert result binding: the first one wins
+    first: Override = Override(
+        block_path="",
+        instruction="1/body/0",
+        values=torch.full((2, 4), 3.0)
+    )
+    second: Override = Override(
+        block_path="",
+        instruction="1/body/0",
+        values=torch.full((2, 4), 7.0)
+    )
+    record = capture_run(
+        block=schema,
+        scope={"x": x.clone()},
+        overrides=[first, second]
+    )
+
+    # The binding carries the value of the first override only
+    binding: Any = next(
+        step.tensor.value
+        for step in record.trace.steps
+        if step.block_path == "" and step.out_var == "$t1"
+    )
+    assert torch.equal(binding, torch.full((2, 4), 3.0))
+
+    # The reversed order carries the other value
+    reversed_record = capture_run(
+        block=schema,
+        scope={"x": x.clone()},
+        overrides=[second, first]
+    )
+    reversed_binding: Any = next(
+        step.tensor.value
+        for step in reversed_record.trace.steps
+        if step.block_path == "" and step.out_var == "$t1"
+    )
+    assert torch.equal(reversed_binding, torch.full((2, 4), 7.0))
+
+
+def test_override_with_gradient_capture() -> None:
+    """
+    The gradient collection survives the overridden bindings: the backward
+    of a run with an override produces the gradients of the edited
+    computation, flowing through the replaced value.
+    """
+
+    # The test model and its schema
+    model: MoE = MoE(hidden=4, experts=1).eval()
+    schema = build_schema(model=model, shape=(2, 4))
+    x: Tensor = torch.randn(2, 4)
+
+    # The reference run with the gradients capturable
+    reference = capture_run(
+        block=schema,
+        scope={"x": x.clone().requires_grad_(True)},
+        capture_grads=True
+    )
+    reference.outputs[0].pow(2).sum().backward()
+    reference_grads: Tensor = reference.scope["x"].grad.clone()
+
+    # The overridden run: the expert result is zeroed, so the input
+    # gradient of the output projection is zero too
+    override: Override = Override(
+        block_path="",
+        instruction="1/body/0",
+        values=torch.zeros(2, 4)
+    )
+    overridden = capture_run(
+        block=schema,
+        scope={"x": x.clone().requires_grad_(True)},
+        capture_grads=True,
+        overrides=[override]
+    )
+    overridden.outputs[0].pow(2).sum().backward()
+    overridden_grads: Tensor = overridden.scope["x"].grad.clone()
+
+    # The gradients differ from the reference run, and match the analytic
+    # gradient of the edited computation: the zeroed expert leaves acc = x,
+    # so the overridden run computes out(x) only
+    assert not torch.allclose(reference_grads, overridden_grads)
+    proxy: Tensor = x.clone().requires_grad_(True)
+    model.out(proxy).pow(2).sum().backward()
+    assert torch.allclose(
+        overridden_grads,
+        proxy.grad,
+        atol=1e-5
+    )
+
+    # The gradient trace mirrors the activation steps, the overridden ones
+    # included
+    gradients = overridden.gradients
+    assert len(gradients.steps) > 0
+    assert not torch.isnan(gradients.steps[0].tensor.value).any()
+
+
 def test_patch_callable_override() -> None:
     """
     The patch callable produces the replacement from the produced value.
@@ -594,6 +700,12 @@ def main() -> None:
 
     test_overrides_with_step_run()
     print("test_overrides_with_step_run OK")
+
+    test_override_priority_first_match_wins()
+    print("test_override_priority_first_match_wins OK")
+
+    test_override_with_gradient_capture()
+    print("test_override_with_gradient_capture OK")
 
     test_override_errors()
     print("test_override_errors OK")
